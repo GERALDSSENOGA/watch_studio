@@ -1,0 +1,313 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enumerations
+// ---------------------------------------------------------------------------
+
+enum MediaCategory {
+  FOOTBALL
+  MOVIE
+}
+
+enum MediaAccessMode {
+  // The media can be played inside an embedded player on this site.
+  EMBED
+  // The media can only be opened on the provider's site (external-link fallback).
+  EXTERNAL
+}
+
+enum MediaPlaybackMode {
+  // Embedded player that WatchStudio can observe and synchronize.
+  SYNCHRONIZED
+  // External provider page; playback must be coordinated manually.
+  EXTERNAL
+  // Source is not playable through WatchStudio at all.
+  UNSUPPORTED
+}
+
+enum MediaAvailability {
+  AVAILABLE
+  UNAVAILABLE
+  BREAKING
+  REMOVED
+}
+
+enum RoomVisibility {
+  PRIVATE
+}
+
+enum RoomStatus {
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+enum RoomRole {
+  HOST
+  MODERATOR
+  MEMBER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+  EXPIRED
+}
+
+enum PlaybackState {
+  PLAYING
+  PAUSED
+}
+
+enum PlaybackSessionStatus {
+  ACTIVE
+  ENDED
+}
+
+enum ChatModerationStatus {
+  OK
+  REMOVED
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
+// ---------------------------------------------------------------------------
+// Auth.js (next-auth v5) adapter tables — Prisma adapter
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  role          String    @default("user")
+  status        String    @default("active")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts               Account[]
+  sessions               Session[]
+  mediaItems             MediaItem[]
+  ownedRooms             WatchRoom[]            @relation("RoomHost")
+  memberships            RoomMember[]
+  invitationsSent        Invitation[]           @relation("Inviter")
+  invitationsReceived    Invitation[]           @relation("Invitee")
+  chatMessages           ChatMessage[]
+  playbackSessions       PlaybackSession[]
+  reports                Report[]
+  revokedInvitations     Invitation[]       @relation("Revoker")
+  reviewedReports        Report[]           @relation("Reviewer")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  accessToken  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// Application tables
+// ---------------------------------------------------------------------------
+
+model MediaItem {
+  id                String            @id @default(cuid())
+  ownerId           String
+  owner             User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title             String
+  description       String?
+  category          MediaCategory
+  originalUrl       String            @db.Text
+  providerId        String
+  providerVideoId   String?
+  thumbnailUrl      String?           @db.Text
+  accessMode        MediaAccessMode   @default(EXTERNAL)
+  playbackMode      MediaPlaybackMode @default(UNSUPPORTED)
+  availability      MediaAvailability @default(AVAILABLE)
+
+  // Football metadata
+  homeTeam     String?
+  awayTeam     String?
+  competition  String?
+  kickoffAt    DateTime?
+  matchStatus  String? // live | replay | upcoming | completed
+
+  // Movie metadata
+  releaseYear    Int?
+  genre          String?
+  durationMins   Int?
+
+  visibility        String @default("private")
+  moderationStatus  String @default("approved")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  rooms             WatchRoom[]       @relation("RoomMedia")
+  playbackSessions  PlaybackSession[]
+  reportedMedia     Report[]          @relation("ReportMedia")
+
+  @@index([ownerId])
+  @@index([category])
+  @@index([providerId])
+  @@index([availability])
+}
+
+model WatchRoom {
+  id                String     @id @default(cuid())
+  name              String
+  description       String?
+  hostId            String
+  host              User       @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
+  currentMediaId    String?
+  currentMedia      MediaItem? @relation("RoomMedia", fields: [currentMediaId], references: [id], onDelete: SetNull)
+  visibility        RoomVisibility @default(PRIVATE)
+  status            RoomStatus @default(ACTIVE)
+  maxMembers        Int        @default(50)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  members           RoomMember[]
+  invitations       Invitation[]
+  chatMessages      ChatMessage[]
+  playbackSessions  PlaybackSession[]
+  reportedRooms     Report[]               @relation("ReportRoom")
+
+  @@index([hostId])
+  @@index([visibility])
+  @@index([status])
+}
+
+model RoomMember {
+  id        String   @id @default(cuid())
+  roomId    String
+  room      WatchRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      RoomRole @default(MEMBER)
+  joinedAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@unique([roomId, userId])
+  @@index([userId])
+}
+
+model Invitation {
+  id             String           @id @default(cuid())
+  roomId         String
+  room           WatchRoom        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  inviterId      String
+  inviter        User             @relation("Inviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  inviteeId      String?
+  invitee        User?            @relation("Invitee", fields: [inviteeId], references: [id])
+  tokenHash      String           @unique
+  tokenExpiresAt DateTime
+  status         InvitationStatus @default(PENDING)
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  revokedById    String?
+  revokedBy      User?            @relation("Revoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  createdAt      DateTime         @default(now())
+
+  @@index([roomId])
+  @@index([status])
+}
+
+model ChatMessage {
+  id             String              @id @default(cuid())
+  roomId         String
+  room           WatchRoom           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  body           String              @db.Text
+  moderation     ChatModerationStatus @default(OK)
+  editedAt       DateTime?
+  createdAt      DateTime            @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([userId])
+}
+
+model PlaybackSession {
+  id             String             @id @default(cuid())
+  roomId         String
+  room           WatchRoom          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  mediaId        String
+  media          MediaItem          @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  providerId     String
+  state          PlaybackState      @default(PAUSED)
+  positionMs     Int                @default(0)
+  version        Int                @default(1)
+  updatedAt      DateTime           @default(now()) @updatedAt
+  updatedById    String?
+  updatedBy      User?              @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+  status         PlaybackSessionStatus @default(ACTIVE)
+
+  @@index([roomId])
+  @@index([mediaId])
+}
+
+model Report {
+  id          String      @id @default(cuid())
+  mediaId     String?
+  media       MediaItem?  @relation("ReportMedia", fields: [mediaId], references: [id], onDelete: SetNull)
+  roomId      String?
+  room        WatchRoom?  @relation("ReportRoom", fields: [roomId], references: [id], onDelete: SetNull)
+  reporterId  String
+  reporter    User        @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  reason      String
+  description String?
+  status      ReportStatus @default(OPEN)
+  reviewedById String?
+  reviewedBy  User?        @relation("Reviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt  DateTime?
+  createdAt   DateTime    @default(now())
+
+  @@index([status])
+  @@index([reporterId])
+}

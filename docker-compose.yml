@@ -1,0 +1,29 @@
+# WatchStudio — local PostgreSQL for development
+#
+# Start the database only:
+#   docker compose up -d db
+#
+# Then run: npx prisma migrate dev  (creates schema in the `watchstudio` DB)
+#
+# Credentials below match .env.example. Change them for any non-local use.
+
+services:
+  db:
+    image: postgres:17
+    container_name: watchstudio-db
+    environment:
+      POSTGRES_USER: watchstudio
+      POSTGRES_PASSWORD: watchstudio
+      POSTGRES_DB: watchstudio
+    ports:
+      - "5434:5432"
+    volumes:
+      - watchstudio_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U watchstudio -d watchstudio"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  watchstudio_pgdata:

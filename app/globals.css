@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  /* WatchStudio — minimal, dark, streaming-inspired design tokens */
+  --color-background: #0a0b0f;
+  --color-foreground: #eaeaf0;
+
+  --color-surface: #11131c;
+  --color-surface-hover: #181b28;
+  --color-border: #272c3b;
+  --color-border-hover: #40475b;
+
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f46e5;
+  --color-accent-muted: #3b3c5c;
+
+  --color-muted: #94a3b8;
+  --color-muted-foreground: #64748b;
+
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-danger-muted: #451a1a;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+}
+
+html,
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+body {
+  font-size: 0.95rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.button-focus-ring {
+  outline: none;
+  box-shadow: none;
+}
+.button-focus-ring:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
