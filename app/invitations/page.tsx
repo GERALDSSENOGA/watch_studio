@@ -16,7 +16,11 @@ export default async function InvitationsPage() {
 
   const revoke = async (id: string) => {
     if (!window.confirm("Revoke this invitation? It can no longer be used to join the room.")) return
-    const response = await fetch(`/api/invitations/${id}/revoke`, { method: "POST" })
+    const response = await fetch("/api/invitations/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invitationId: id }),
+    })
     if (response.ok) window.location.reload()
   }
 

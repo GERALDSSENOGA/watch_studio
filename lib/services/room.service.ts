@@ -1,9 +1,13 @@
-import { Prisma, RoomRole, RoomStatus } from "@prisma/client"
-import { prisma } from "@/lib/db"
+import { Prisma, PlaybackSessionStatus, RoomRole, RoomStatus } from "@prisma/client"
+import { prisma } from "../db.ts"
 
 export class RoomError extends Error {
-  constructor(public readonly code: string, message: string, public readonly status: number = 400) {
+  public readonly code: string
+  public readonly status: number
+  constructor(code: string, message: string, status: number = 400) {
     super(message)
+    this.code = code
+    this.status = status
     this.name = "RoomError"
   }
 }
@@ -44,7 +48,7 @@ export async function getRoom(id: string) {
       currentMedia: true,
       members: {
         include: { user: { select: { id: true, name: true, image: true, role: true, status: true } } },
-        orderBy: { role: "asc", joinedAt: "asc" },
+        orderBy: [{ role: "asc" }, { joinedAt: "asc" }],
       },
     },
   })
@@ -146,14 +150,20 @@ export async function leaveRoom(roomId: string, userId: string) {
 }
 
 export async function setMemberRole(roomId: string, actorId: string, targetUserId: string, role: RoomRole) {
-  await assertCanManage(roomId, actorId)
-  if (actorId === targetUserId && role !== RoomRole.HOST)
-    throw new RoomError("SELF_DEMOTE", "The host cannot demote themselves", 400)
+  const actorRole = await assertCanManage(roomId, actorId)
+  if (actorRole !== RoomRole.HOST)
+    throw new RoomError("FORBIDDEN", "Only the host can change member roles", 403)
+
   const target = await prisma.roomMember.findUnique({
     where: { roomId_userId: { roomId, userId: targetUserId } },
   })
   if (!target) throw new RoomError("NOT_MEMBER", "User is not a member of this room", 404)
   if (target.role === RoomRole.HOST) throw new RoomError("FORBIDDEN", "The host role cannot be changed", 403)
+  if (role === RoomRole.HOST)
+    throw new RoomError("FORBIDDEN", "The host role cannot be assigned", 403)
+  if (actorId === targetUserId)
+    throw new RoomError("SELF_DEMOTE", "The host cannot demote themselves", 400)
+
   return prisma.roomMember.update({ where: { id: target.id }, data: { role } })
 }
 

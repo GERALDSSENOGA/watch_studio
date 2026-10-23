@@ -2,11 +2,11 @@ import dotenv from "dotenv"
 dotenv.config()
 
 import { WebSocketServer, WebSocket } from "ws"
-import { validateSessionToken } from "../lib/auth"
-import { prisma } from "../lib/db"
-import { applyCommand, getSession } from "../lib/services/playback.service"
-import { createMessage, getMessages } from "../lib/services/chat.service"
-import { assertMembership } from "../lib/services/room.service"
+import { validateSessionToken } from "../lib/ws-auth.ts"
+import { prisma } from "../lib/db.ts"
+import { applyCommand, getSession } from "../lib/services/playback.service.ts"
+import { createMessage, getMessages } from "../lib/services/chat.service.ts"
+import { assertMembership } from "../lib/services/room.service.ts"
 
 const PORT = Number(process.env.WS_PORT ?? 3001)
 const HEARTBEAT_INTERVAL_MS = 30_000
@@ -76,33 +76,37 @@ async function authenticate(socket: AuthedSocket, token: string | null) {
 
 async function handleJoin(socket: AuthedSocket, roomId: string) {
   if (!socket.authenticated || !socket.userId) return
-  const role = await assertMembership(roomId, socket.userId)
-  if (!role) return
+  try {
+    const role = await assertMembership(roomId, socket.userId)
+    if (!role) return
 
-  socket.roomId = roomId
-  roomSet(roomId).add(socket)
+    socket.roomId = roomId
+    roomSet(roomId).add(socket)
 
-  sendTo(socket, { type: "room.joined", roomId, role, presence: presenceSnapshot(roomId) })
-  broadcast(roomId, { type: "presence.joined", userId: socket.userId, userName: socket.userName, role }, socket)
+    sendTo(socket, { type: "room.joined", roomId, role, presence: presenceSnapshot(roomId) })
+    broadcast(roomId, { type: "presence.joined", userId: socket.userId, userName: socket.userName, role }, socket)
 
-  // Send current playback state so a reconciling client converges immediately.
-  const session = await getSession(roomId)
-  if (session) {
-    sendTo(socket, {
-      type: "playback.state",
-      roomId,
-      state: session.state,
-      positionMs: session.positionMs,
-      version: session.version,
-      updatedBy: session.updatedById,
-      updatedAt: session.updatedAt,
-      media: {
-        id: session.media.id,
-        title: session.media.title,
-        providerId: session.providerId,
-        originalUrl: session.media.originalUrl,
-      },
-    })
+    // Send current playback state so a reconciling client converges immediately.
+    const session = await getSession(roomId)
+    if (session) {
+      sendTo(socket, {
+        type: "playback.state",
+        roomId,
+        state: session.state,
+        positionMs: session.positionMs,
+        version: session.version,
+        updatedBy: session.updatedById,
+        updatedAt: session.updatedAt,
+        media: {
+          id: session.media.id,
+          title: session.media.title,
+          providerId: session.providerId,
+          originalUrl: session.media.originalUrl,
+        },
+      })
+    }
+  } catch (err: any) {
+    sendTo(socket, { type: "room.error", code: err.code ?? "ROOM_JOIN_FAILED", message: err.message ?? "Failed to join room" })
   }
 }
 
@@ -245,30 +249,34 @@ wss.on("connection", (ws, req) => {
       return
     }
 
-    switch (m.type) {
-      case "room.join": {
-        const mm = m as { roomId?: string }
-        if (typeof mm.roomId === "string") await handleJoin(socket, mm.roomId)
-        break
+    try {
+      switch (m.type) {
+        case "room.join": {
+          const mm = m as { roomId?: string }
+          if (typeof mm.roomId === "string") await handleJoin(socket, mm.roomId)
+          break
+        }
+        case "chat.send": {
+          const mm = m as { body?: string }
+          if (socket.roomId && typeof mm.body === "string") await handleChat(socket, socket.roomId, mm.body)
+          break
+        }
+        case "playback.command": {
+          const mm = m as { command?: unknown }
+          if (socket.roomId) await handlePlaybackCommand(socket, socket.roomId, mm.command)
+          break
+        }
+        case "playback.reconcile": {
+          const mm = m as { version?: unknown }
+          if (socket.roomId && typeof mm.version === "number")
+            await handleReconcile(socket, socket.roomId, mm.version)
+          break
+        }
+        default:
+          sendTo(socket, { type: "error", code: "UNKNOWN_MESSAGE" })
       }
-      case "chat.send": {
-        const mm = m as { body?: string }
-        if (socket.roomId && typeof mm.body === "string") await handleChat(socket, socket.roomId, mm.body)
-        break
-      }
-      case "playback.command": {
-        const mm = m as { command?: unknown }
-        if (socket.roomId) await handlePlaybackCommand(socket, socket.roomId, mm.command)
-        break
-      }
-      case "playback.reconcile": {
-        const mm = m as { version?: unknown }
-        if (socket.roomId && typeof mm.version === "number")
-          await handleReconcile(socket, socket.roomId, mm.version)
-        break
-      }
-      default:
-        sendTo(socket, { type: "error", code: "UNKNOWN_MESSAGE" })
+    } catch (err: any) {
+      sendTo(socket, { type: "error", code: err.code ?? "SERVER_ERROR", message: err.message ?? "Server error" })
     }
   })
 

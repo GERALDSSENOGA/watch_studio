@@ -1,10 +1,14 @@
 import { Prisma, PlaybackState, PlaybackSessionStatus } from "@prisma/client"
-import { prisma } from "@/lib/db"
-import { assertCanControlPlayback } from "@/lib/services/room.service"
+import { prisma } from "../db.ts"
+import { assertCanControlPlayback } from "./room.service.ts"
 
 export class PlaybackError extends Error {
-  constructor(public readonly code: string, message: string, public readonly status: number = 400) {
+  public readonly code: string
+  public readonly status: number
+  constructor(code: string, message: string, status: number = 400) {
     super(message)
+    this.code = code
+    this.status = status
     this.name = "PlaybackError"
   }
 }
@@ -53,14 +57,43 @@ export async function applyCommand(input: {
 }) {
   await assertCanControlPlayback(input.roomId, input.userId)
 
-  const session = await prisma.playbackSession.findFirst({
+  const existing = await prisma.playbackSession.findFirst({
     where: { roomId: input.roomId, status: PlaybackSessionStatus.ACTIVE },
   })
-  if (!session) throw new PlaybackError("NO_SESSION", "No active playback session for this room", 404)
 
-  // Optimistic concurrency: command must be built on the current version.
-  if (input.command.version !== session.version)
-    throw new PlaybackError("STALE_VERSION", "Command is based on an outdated playback state", 409)
+  let session: any
+  let justCreated = false
+  if (existing) {
+    session = existing
+    // Optimistic concurrency: command must be built on the current version.
+    if (input.command.version !== session.version)
+      throw new PlaybackError("STALE_VERSION", "Command is based on an outdated playback state", 409)
+  } else {
+    // First command for this room creates the playback session, bound to the
+    // room's currently selected media.
+    const room = await prisma.watchRoom.findUnique({
+      where: { id: input.roomId },
+      select: {
+        currentMediaId: true,
+        currentMedia: { select: { providerId: true } },
+      },
+    })
+    if (!room?.currentMediaId)
+      throw new PlaybackError("NO_MEDIA", "No media selected for this room", 400)
+    session = await prisma.playbackSession.create({
+      data: {
+        roomId: input.roomId,
+        mediaId: room.currentMediaId,
+        providerId: room.currentMedia?.providerId ?? "generic",
+        state: PlaybackState.PAUSED,
+        positionMs: 0,
+        version: 1,
+        status: PlaybackSessionStatus.ACTIVE,
+      },
+      include: { updatedBy: { select: { id: true, name: true } }, media: true },
+    })
+    justCreated = true
+  }
 
   const positionMs =
     input.command.action === "seek" ? input.command.positionMs : input.command.positionMs ?? session.positionMs

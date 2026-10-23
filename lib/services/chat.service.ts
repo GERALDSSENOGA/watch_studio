@@ -1,9 +1,13 @@
-import { prisma } from "@/lib/db"
-import { assertMembership } from "@/lib/services/room.service"
+import { prisma } from "../db.ts"
+import { assertMembership } from "./room.service.ts"
 
 export class ChatError extends Error {
-  constructor(public readonly code: string, message: string, public readonly status: number = 400) {
+  public readonly code: string
+  public readonly status: number
+  constructor(code: string, message: string, status: number = 400) {
     super(message)
+    this.code = code
+    this.status = status
     this.name = "ChatError"
   }
 }
