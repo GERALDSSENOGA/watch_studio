@@ -82,6 +82,41 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   const guestPeerConnectionRef = React.useRef<RTCPeerConnection | null>(null)
   const localStreamRef = React.useRef<MediaStream | null>(null)
   const remoteStreamRef = React.useRef<MediaStream | null>(null)
+  const pendingCandidatesRef = React.useRef<WeakMap<RTCPeerConnection, RTCIceCandidateInit[]>>(
+    new WeakMap()
+  )
+
+  // ------------------------------------------------------------------
+  // ICE candidates routinely arrive before the SDP that describes them.
+  // Adding one then throws InvalidStateError ("No remoteDescription") and the
+  // candidate is dropped, which can stall the connection — so hold them per
+  // connection until a remote description exists, then flush.
+  // ------------------------------------------------------------------
+  const addIceCandidateWhenReady = React.useCallback(
+    (pc: RTCPeerConnection, candidate: RTCIceCandidateInit) => {
+      if (!pc.remoteDescription) {
+        const pending = pendingCandidatesRef.current.get(pc) ?? []
+        pending.push(candidate)
+        pendingCandidatesRef.current.set(pc, pending)
+        return
+      }
+      pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+        console.error("Failed to add ICE candidate:", err)
+      })
+    },
+    []
+  )
+
+  const flushIceCandidates = React.useCallback((pc: RTCPeerConnection) => {
+    const pending = pendingCandidatesRef.current.get(pc)
+    if (!pending) return
+    pendingCandidatesRef.current.delete(pc)
+    for (const candidate of pending) {
+      pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+        console.error("Failed to add ICE candidate:", err)
+      })
+    }
+  }, [])
 
   const iceServers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
@@ -244,9 +279,11 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           const answer = signal as WebRTCAnswer
           const pc = peerConnectionsRef.current.get(answer.from)
           if (pc) {
-            pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp })).catch((err) => {
-              console.error("Failed to set remote answer:", err)
-            })
+            pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp }))
+              .then(() => flushIceCandidates(pc))
+              .catch((err) => {
+                console.error("Failed to set remote answer:", err)
+              })
           }
           break
         }
@@ -254,15 +291,13 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           const candidate = signal as WebRTCIceCandidate
           const pc = peerConnectionsRef.current.get(candidate.from)
           if (pc && candidate.candidate) {
-            pc.addIceCandidate(new RTCIceCandidate(candidate.candidate)).catch((err) => {
-              console.error("Failed to add ICE candidate:", err)
-            })
+            addIceCandidateWhenReady(pc, candidate.candidate)
           }
           break
         }
       }
     },
-    []
+    [addIceCandidateWhenReady, flushIceCandidates]
   )
 
   // ------------------------------------------------------------------
@@ -334,7 +369,10 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           guestPeerConnectionRef.current = pc
 
           pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
-            .then(() => pc.createAnswer())
+            .then(() => {
+              flushIceCandidates(pc)
+              return pc.createAnswer()
+            })
             .then((answer) => pc.setLocalDescription(answer))
             .then(() => {
               const localDesc = pc.localDescription
@@ -358,9 +396,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           const candidate = signal as WebRTCIceCandidate
           const pc = guestPeerConnectionRef.current
           if (pc && candidate.candidate) {
-            pc.addIceCandidate(new RTCIceCandidate(candidate.candidate)).catch((err) => {
-              console.error("Failed to add ICE candidate:", err)
-            })
+            addIceCandidateWhenReady(pc, candidate.candidate)
           }
           break
         }
@@ -378,7 +414,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         }
       }
     },
-    [sendSignal, stopReceiving]
+    [addIceCandidateWhenReady, flushIceCandidates, sendSignal, stopReceiving]
   )
 
   const value: ScreenShareContextValue = {
