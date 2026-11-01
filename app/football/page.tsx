@@ -5,8 +5,9 @@ import { MediaGrid } from "@/components/media-grid"
 export default async function FootballPage({
   searchParams,
 }: {
-  searchParams?: { search?: string }
+  searchParams: Promise<{ search?: string }>
 }) {
+  const { search: searchQuery } = await searchParams
   const session = await auth()
   if (!session?.user) {
     return (
@@ -19,7 +20,7 @@ export default async function FootballPage({
   const user = session.user
   const { items } = await listMedia(user.id, {
     category: "FOOTBALL",
-    search: searchParams?.search || undefined,
+    search: searchQuery || undefined,
     take: 100,
   })
 

@@ -58,4 +58,8 @@ Run it with `docker compose -f docker-compose.base44.yml up -d`.
 - `/rooms/create` keeps auth + `listMedia` in the server page and renders the
   interactive form from `app/rooms/create/create-room-form.tsx` (client), which POSTs
   to `/api/rooms`. Do not add hooks back into the server page.
-- `app/invitations/accept/page.tsx` reads `searchParams.token` without awaiting it.
+- Next 16 hands pages `searchParams`/`params` as Promises. `/library`, `/movies`,
+  `/football` and `/invitations/accept` all `await searchParams` before touching its
+  properties; accessing it synchronously only shows up in the log for *signed-in*
+  requests (the signed-out branches return early), so check the log after browsing
+  while logged in.

@@ -4,14 +4,13 @@ import { getInvitationStatus } from "@/lib/services/invitation.service"
 export default async function AcceptInvitationPage({
   searchParams,
 }: {
-  searchParams: { token?: string }
+  searchParams: Promise<{ token?: string }>
 }) {
+  const { token } = await searchParams
   const session = await auth()
   if (!session?.user) {
-    redirect(`/login?callbackUrl=/invitations/accept?token=${searchParams.token}`)
+    redirect(`/login?callbackUrl=/invitations/accept?token=${token}`)
   }
-
-  const token = searchParams.token
   if (!token) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-12 text-center">

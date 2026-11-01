@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge"
 export default async function LibraryPage({
   searchParams,
 }: {
-  searchParams: { category?: string; search?: string; availability?: string }
+  searchParams: Promise<{ category?: string; search?: string; availability?: string }>
 }) {
+  const { category, search, availability } = await searchParams
   const session = await auth()
   if (!session?.user) {
     return (
@@ -21,9 +22,9 @@ export default async function LibraryPage({
 
   const user = session.user
   const { items, total } = await listMedia(user.id, {
-    category: (searchParams.category ?? undefined) as "FOOTBALL" | "MOVIE" | undefined,
-    search: searchParams.search || undefined,
-    availability: searchParams.availability ?? undefined,
+    category: (category ?? undefined) as "FOOTBALL" | "MOVIE" | undefined,
+    search: search || undefined,
+    availability: availability ?? undefined,
     take: 100,
   })
 
@@ -42,18 +43,18 @@ export default async function LibraryPage({
           <label className="block text-sm font-medium mb-2">Search</label>
           <Input
             placeholder="Title, teams, competition…"
-            defaultValue={searchParams.search ?? ""}
+            defaultValue={search ?? ""}
           />
         </div>
         <div className="flex gap-2">
           <Badge
-            variant={searchParams.category === "FOOTBALL" ? "success" : "default"}
+            variant={category === "FOOTBALL" ? "success" : "default"}
             className="text-sm px-3 py-2 cursor-pointer"
           >
             Football
           </Badge>
           <Badge
-            variant={searchParams.category === "MOVIE" ? "default" : "muted"}
+            variant={category === "MOVIE" ? "default" : "muted"}
             className="text-sm px-3 py-2 cursor-pointer"
           >
             Movies
