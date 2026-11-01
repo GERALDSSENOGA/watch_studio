@@ -68,7 +68,7 @@ export function RoomView({
   // Fetch chat history once connected.
   useEffect(() => {
     if (!socketConnected) return
-    fetch(`/api/chat/${room.id}/messages?limit=50`)
+    fetch(`/api/chat/${room.id}?limit=50`)
       .then((r) => r.json())
       .then((data) => {
         setMessages((data.messages ?? []).reverse())

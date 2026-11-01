@@ -5,6 +5,7 @@ import { YouTubePlayer } from "@/components/players/youtube-player"
 import { getProvider, youtubeWatchUrl } from "@/lib/providers"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 
 interface RoomMedia {
   id: string
@@ -103,6 +104,10 @@ export function RoomPlayer({ roomId, media, playback, isHost, userId, send }: Ro
     []
   )
 
+  // A freshly created room has no media yet; RoomView renders its own
+  // "No media selected" card, so don't also claim the source is unavailable.
+  if (!media.id) return null
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
@@ -193,5 +198,3 @@ export function RoomPlayer({ roomId, media, playback, isHost, userId, send }: Ro
     </div>
   )
 }
-
-import { Button } from "@/components/ui/button"

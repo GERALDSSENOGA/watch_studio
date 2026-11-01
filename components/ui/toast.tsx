@@ -17,18 +17,23 @@ let nextId = 0
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = React.useState<Toast[]>([])
 
-  const add = (toast: Omit<Toast, "id">) => {
+  // Stable identities: components call `add` inside effects that list it as a
+  // dependency. A fresh function each render made those effects re-run forever
+  // (toast -> provider re-render -> new `add` -> fetch again).
+  const add = React.useCallback((toast: Omit<Toast, "id">) => {
     const id = String(++nextId)
     setToasts((t) => [...t, { ...toast, id }])
     if (toast.variant !== "success") {
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000)
     }
-  }
+  }, [])
 
-  const remove = (id: string) => setToasts((t) => t.filter((x) => x.id !== id))
+  const remove = React.useCallback((id: string) => setToasts((t) => t.filter((x) => x.id !== id)), [])
+
+  const value = React.useMemo(() => ({ toasts, add, remove }), [toasts, add, remove])
 
   return (
-    <ToastContext.Provider value={{ toasts, add, remove }}>
+    <ToastContext.Provider value={value}>
       {children}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
         {toasts.map((t) => (
