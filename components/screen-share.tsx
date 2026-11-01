@@ -509,6 +509,10 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                   <p className="text-xs text-muted-foreground">
                     Click "Share Screen" to broadcast your screen to the room.
                   </p>
+                  <p className="text-xs text-muted-foreground max-w-xs text-center">
+                    Pick the <strong>Chrome Tab</strong> source. Sharing a whole window can leave a
+                    playing video blank, because Chrome does not capture its GPU video layer.
+                  </p>
                 </div>
               </CardContent>
               <div className="flex gap-2 pt-2 pb-2">
