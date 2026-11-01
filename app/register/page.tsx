@@ -93,16 +93,17 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Full name</Label>
-              <Input id="name" placeholder="Alex Rivera" required autoComplete="name" />
+              <Input id="name" name="name" placeholder="Alex Rivera" required autoComplete="name" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="you@example.com" required autoComplete="email" />
+              <Input id="email" name="email" type="email" placeholder="you@example.com" required autoComplete="email" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
+                name="password"
                 type="password"
                 minLength={8}
                 required

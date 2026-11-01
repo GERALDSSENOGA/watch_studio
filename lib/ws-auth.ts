@@ -19,12 +19,17 @@ export async function validateSessionToken(sessionToken: string) {
   const secret = process.env.NEXTAUTH_SECRET
   if (!secret) return null
   try {
-    // salt must match the cookie name next-auth uses to derive the encryption key
+    // salt must match the cookie name next-auth uses to derive the encryption
+    // key: `authjs.session-token`, or its `__Secure-` variant over HTTPS.
+    const salts = ["authjs.session-token", "__Secure-authjs.session-token"]
     let payload
-    try {
-      payload = await decode({ token: sessionToken, secret, salt: "authjs.session-token" })
-    } catch {
-      return null
+    for (const salt of salts) {
+      try {
+        payload = await decode({ token: sessionToken, secret, salt })
+      } catch {
+        payload = undefined
+      }
+      if (payload) break
     }
     if (!payload) return null
     // next-auth v5 JWT sessions store user fields at the top level of the

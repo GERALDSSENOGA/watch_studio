@@ -61,7 +61,12 @@ export default async function RoomPage({
 
   const playback = await getSession(id)
   const cookieStore = await cookies()
-  const wsToken = cookieStore.get("next-auth.session-token")?.value
+  // next-auth v5 names the session cookie `authjs.session-token`, prefixed with
+  // `__Secure-` when served over HTTPS. Fall back to the legacy v4 name.
+  const wsToken =
+    cookieStore.get("__Secure-authjs.session-token")?.value ??
+    cookieStore.get("authjs.session-token")?.value ??
+    cookieStore.get("next-auth.session-token")?.value
 
   const media = await listMedia(session.user.id, { take: 100 })
   const mediaItems = media.items.map((item: any) => ({ id: item.id, title: item.title }))

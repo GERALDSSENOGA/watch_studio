@@ -1,0 +1,153 @@
+# WatchStudio — Base44 development environment (sandbox/preview).
+#
+# Runs the app FROM THE CLONED SOURCE with Next.js in dev mode so edits appear
+# live. Both processes the app needs are started:
+#   web  — Next.js 16 dev server on host port 3000 (the preview entry point)
+#   ws   — standalone WebSocket server (server/ws.mts) on host port 3001
+#
+#   docker compose -f docker-compose.base44.yml up -d --build
+#
+# NEXTAUTH_SECRET is delivered by the platform in /run/base44/app.env.
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: watchstudio
+      POSTGRES_PASSWORD: watchstudio
+      POSTGRES_DB: watchstudio
+    volumes:
+      - watchstudio_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U watchstudio -d watchstudio"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: on-failure
+
+  # One-shot: install dependencies from the lockfile into the shared
+  # node_modules volume, then generate the Prisma client.
+  deps:
+    image: node:22-bookworm
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - watchstudio_node_modules:/app/node_modules
+    environment:
+      DATABASE_URL: postgresql://watchstudio:watchstudio@db:5432/watchstudio?schema=public
+      CI: "true"
+    command:
+      - sh
+      - -ec
+      # --legacy-peer-deps: the committed lockfile resolves cleanly with npm's
+      # legacy peer resolution (vitest 5 optionally peers on @types/node 22+,
+      # the repo pins @types/node 20).
+      - npm ci --no-audit --no-fund --legacy-peer-deps && npx prisma generate
+    restart: "no"
+
+  # One-shot: apply the committed Prisma migration to the database.
+  migrate:
+    image: node:22-bookworm
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - watchstudio_node_modules:/app/node_modules
+    environment:
+      DATABASE_URL: postgresql://watchstudio:watchstudio@db:5432/watchstudio?schema=public
+    command: ["sh", "-ec", "npx prisma migrate deploy"]
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    image: node:22-bookworm
+    working_dir: /app
+    labels:
+      base44.project: WatchStudio
+      base44.kind: web
+      base44.port: "3000"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./:/app
+      - watchstudio_node_modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://watchstudio:watchstudio@db:5432/watchstudio?schema=public
+      # Browser-facing URLs use the sandbox's public proxy hosts.
+      NEXTAUTH_URL: https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+      NEXT_PUBLIC_WS_URL: wss://3001-${BASE44_PUBLIC_HOST_SUFFIX}
+      AUTH_TRUST_HOST: "true"
+      # Sandbox-only: Next.js dev origin allowlist (see next.config.ts).
+      BASE44_PREVIEW_MODE: ${BASE44_PREVIEW_MODE:-}
+      BASE44_PUBLIC_HOST_SUFFIX: ${BASE44_PUBLIC_HOST_SUFFIX:-}
+      BASE44_SANDBOX_HOST_DOMAIN: ${BASE44_SANDBOX_HOST_DOMAIN:-}
+      # Bind-mounted sources: poll so hot reload fires inside the container.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    env_file:
+      - /run/base44/app.env
+    command: ["sh", "-ec", "exec npm run dev -- -H 0.0.0.0 -p 3000"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.status < 500 ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+    restart: on-failure
+
+  ws:
+    image: node:22-bookworm
+    working_dir: /app
+    labels:
+      base44.project: WatchStudio Realtime
+      base44.kind: web
+      base44.port: "3001"
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./:/app
+      - watchstudio_node_modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://watchstudio:watchstudio@db:5432/watchstudio?schema=public
+      WS_PORT: "3001"
+      NEXTAUTH_URL: https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+      WS_ORIGIN: https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+      CHOKIDAR_USEPOLLING: "true"
+    env_file:
+      - /run/base44/app.env
+    # --watch: restart the process on source edits (live reload for the WS server).
+    command: ["sh", "-ec", "exec node --watch server/ws.mts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const W=require('ws');const w=new W('ws://127.0.0.1:3001');const t=setTimeout(()=>{console.log('ws timeout');process.exit(1)},5000);w.on('open',()=>{clearTimeout(t);w.close();process.exit(0)});w.on('error',(e)=>{console.log('ws error: '+e.message);process.exit(1)})"
+      interval: 10s
+      timeout: 8s
+      retries: 12
+      start_period: 30s
+    restart: on-failure
+
+volumes:
+  watchstudio_pgdata:
+  watchstudio_node_modules:

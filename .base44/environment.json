@@ -1,0 +1,13 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "NEXTAUTH_SECRET",
+      "description": "Auth.js/next-auth session encryption key; the WebSocket server uses the same value to verify session tokens. Generate with `openssl rand -base64 32`.",
+      "requiredAtBoot": true,
+      "generatedForDevelopment": true
+    }
+  ]
+}
