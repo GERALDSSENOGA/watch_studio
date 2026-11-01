@@ -261,6 +261,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
       receiveError,
       stopReceiving,
       handleGuestSignal,
+      connectionState: hostConnectionState,
     } = useScreenShareGlobal()
 
     const videoRef = React.useRef<HTMLVideoElement | null>(null)
@@ -274,8 +275,6 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
     const [isGuestFullscreen, setIsGuestFullscreen] = React.useState(false)
     const [guestNeedsPlay, setGuestNeedsPlay] = React.useState(false)
 
-    // Derive connection state from context peerCount / remote stream
-    const [hostConnectionState, setHostConnectionState] = React.useState<string>("")
     const [guestConnectionState, setGuestConnectionState] = React.useState<string>("")
 
     // Sync video elements to streams
@@ -294,9 +293,16 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
         // Note: MediaStreamTrack doesn't have volume; volume is on the HTMLMediaElement
         el.volume = guestVolume
       }
-      // A stream with audio is not always allowed to autoplay; surface a
-      // tap-to-play control instead of leaving a frozen video area.
-      el.play().then(() => setGuestNeedsPlay(false)).catch(() => setGuestNeedsPlay(true))
+      // Start muted so autoplay is not blocked by browsers (especially when
+      // the shared tab has audio), then unmute once play succeeds.
+      el.muted = true
+      el
+        .play()
+        .then(() => {
+          el.muted = false
+          setGuestNeedsPlay(false)
+        })
+        .catch(() => setGuestNeedsPlay(true))
     }, [remoteStream, isGuestMuted, guestVolume])
 
     React.useEffect(() => {

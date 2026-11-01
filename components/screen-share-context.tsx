@@ -15,6 +15,7 @@ interface ScreenShareContextValue {
   localStream: MediaStream | null
   error: string | null
   peerCount: number
+  connectionState: string
   startShare: () => Promise<void>
   stopShare: () => void
   toggleShare: () => Promise<void>
@@ -56,11 +57,13 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     localStream: MediaStream | null
     error: string | null
     peerCount: number
+    connectionState: string
   }>({
     isSharing: false,
     localStream: null,
     error: null,
     peerCount: 0,
+    connectionState: "",
   })
 
   // ------------------------------------------------------------------
@@ -167,6 +170,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       localStream: null,
       error: null,
       peerCount: 0,
+      connectionState: "",
     })
     // Tell the room the share ended so guests tear their player down instead
     // of waiting on a silently dead peer connection.
@@ -183,8 +187,17 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         // drawn on a GPU layer that is not part of a captured window's frames,
         // so window sharing shows the page but leaves the player blank; tab
         // capture includes it.
-        video: { displaySurface: "browser" },
-        audio: true,
+        video: {
+          displaySurface: "browser",
+          selfBrowserSurface: "include",
+          surfaceSwitching: "include",
+          cursor: "always",
+        } as unknown as MediaTrackConstraints,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 48000,
+        },
       })
       localStreamRef.current = stream
       setHostState((prev) => ({ ...prev, isSharing: true, localStream: stream, error: null }))
@@ -234,10 +247,17 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       }
 
       pc.onconnectionstatechange = () => {
+        setHostState((prev) => ({
+          ...prev,
+          connectionState: pc.connectionState,
+        }))
         if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
           pc.close()
           peerConnectionsRef.current.delete(guestId)
-          setHostState((prev) => ({ ...prev, peerCount: peerConnectionsRef.current.size }))
+          setHostState((prev) => ({
+            ...prev,
+            peerCount: peerConnectionsRef.current.size,
+          }))
         }
       }
 
@@ -423,6 +443,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     localStream: hostState.localStream,
     error: hostState.error,
     peerCount: hostState.peerCount,
+    connectionState: hostState.connectionState,
     startShare,
     stopShare,
     toggleShare,

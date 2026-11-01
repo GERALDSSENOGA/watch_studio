@@ -15,10 +15,23 @@ export function mergeRemoteTrack(
   current: MediaStream | null,
   event: Pick<RTCTrackEvent, "track" | "streams">
 ): MediaStream {
-  const stream = event.streams[0] ?? current ?? new MediaStream()
+  // Determine which stream to use as the base:
+  // - If we already have a current stream with tracks, keep it (accumulate
+  //   video + audio into the same object so the <video> element keeps
+  //   rendering while audio is added).
+  // - Otherwise, use the browser-supplied stream from event.streams[0].
+  // - Otherwise, create a new one.
+  let stream: MediaStream
+  if (current && current.getTracks().length > 0) {
+    stream = current
+  } else {
+    stream = event.streams[0] ?? new MediaStream()
+  }
+
   const alreadyAttached = stream
     .getTracks()
     .some((track) => track.id === event.track.id)
   if (!alreadyAttached) stream.addTrack(event.track)
+
   return stream
 }

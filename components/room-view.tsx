@@ -268,8 +268,23 @@ export function RoomView({
             <div className="flex items-center gap-2">
               <Badge variant="muted">{room.status.toLowerCase()}</Badge>
               {room.currentMedia ? (
-                <Badge variant="default">{room.currentMedia.category}</Badge>
+                <Badge
+                  variant={
+                    room.currentMedia.providerId === "youtube"
+                      ? "success"
+                      : "default"
+                  }
+                >
+                  {room.currentMedia.providerId === "youtube"
+                    ? "Synced playback (YouTube)"
+                    : room.currentMedia.category}
+                </Badge>
               ) : null}
+              {room.currentMedia?.providerId === "youtube" && (
+                <Badge variant="default" size="sm">
+                  Native sync
+                </Badge>
+              )}
             </div>
             {isHost && mediaItems.length > 0 && (
               <select
@@ -317,25 +332,50 @@ export function RoomView({
             />
           </ErrorBoundary>
 
-          <ErrorBoundary
-            fallback={
-              <Card className="text-center py-12 text-muted-foreground">
-                <CardContent>
-                  <p>Screen share error. You can still use video player and chat.</p>
-                </CardContent>
-              </Card>
-            }
-          >
-            <ScreenShare
-              roomId={room.id}
-              userId={user.id}
-              isHost={isHost}
-              send={send}
-              onSignal={(handler) => {
-                signalHandlerRef.current = handler
-              }}
-            />
-          </ErrorBoundary>
+          {room.currentMedia?.providerId !== "youtube" ? (
+            <ErrorBoundary
+              fallback={
+                <Card className="text-center py-12 text-muted-foreground">
+                  <CardContent>
+                    <p>Screen share error. You can still use video player and chat.</p>
+                  </CardContent>
+                </Card>
+              }
+            >
+              <ScreenShare
+                roomId={room.id}
+                userId={user.id}
+                isHost={isHost}
+                send={send}
+                onSignal={(handler) => {
+                  signalHandlerRef.current = handler
+                }}
+              />
+            </ErrorBoundary>
+          ) : (
+            <Card className="relative overflow-hidden">
+              <CardHeader className="pb-1">
+                <CardTitle className="text-xs text-muted-foreground">
+                  Native sync available
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="min-h-[300px] flex flex-col items-center justify-center bg-black rounded-lg p-6">
+                <div className="flex flex-col items-center gap-3">
+                  <Badge variant="success" size="sm">
+                    YouTube video detected
+                  </Badge>
+                  <p className="text-xs text-muted-foreground text-center max-w-xs">
+                    This video plays natively in the room with synchronized
+                    play, pause, and seek — no screen sharing needed.
+                  </p>
+                  <p className="text-xs text-muted-foreground text-center max-w-xs">
+                    Host: use the "Change media" dropdown to select a
+                    YouTube link from your library.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {!room.currentMedia && (
             <Card className="text-center py-12 text-muted-foreground">
