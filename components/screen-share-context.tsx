@@ -7,6 +7,7 @@ import {
   WebRTCAnswer,
   WebRTCIceCandidate,
 } from "@/lib/webrtc/types"
+import { mergeRemoteTrack } from "@/lib/webrtc/remote-stream"
 
 interface ScreenShareContextValue {
   // Host state
@@ -80,6 +81,42 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   const peerConnectionsRef = React.useRef<Map<string, RTCPeerConnection>>(new Map())
   const guestPeerConnectionRef = React.useRef<RTCPeerConnection | null>(null)
   const localStreamRef = React.useRef<MediaStream | null>(null)
+  const remoteStreamRef = React.useRef<MediaStream | null>(null)
+  const pendingCandidatesRef = React.useRef<WeakMap<RTCPeerConnection, RTCIceCandidateInit[]>>(
+    new WeakMap()
+  )
+
+  // ------------------------------------------------------------------
+  // ICE candidates routinely arrive before the SDP that describes them.
+  // Adding one then throws InvalidStateError ("No remoteDescription") and the
+  // candidate is dropped, which can stall the connection — so hold them per
+  // connection until a remote description exists, then flush.
+  // ------------------------------------------------------------------
+  const addIceCandidateWhenReady = React.useCallback(
+    (pc: RTCPeerConnection, candidate: RTCIceCandidateInit) => {
+      if (!pc.remoteDescription) {
+        const pending = pendingCandidatesRef.current.get(pc) ?? []
+        pending.push(candidate)
+        pendingCandidatesRef.current.set(pc, pending)
+        return
+      }
+      pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+        console.error("Failed to add ICE candidate:", err)
+      })
+    },
+    []
+  )
+
+  const flushIceCandidates = React.useCallback((pc: RTCPeerConnection) => {
+    const pending = pendingCandidatesRef.current.get(pc)
+    if (!pending) return
+    pendingCandidatesRef.current.delete(pc)
+    for (const candidate of pending) {
+      pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+        console.error("Failed to add ICE candidate:", err)
+      })
+    }
+  }, [])
 
   const iceServers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
@@ -131,7 +168,10 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       error: null,
       peerCount: 0,
     })
-  }, [closeAllPeers])
+    // Tell the room the share ended so guests tear their player down instead
+    // of waiting on a silently dead peer connection.
+    sendSignal({ type: "webrtc.screen-share.stopped", roomId: "", from: "" })
+  }, [closeAllPeers, sendSignal])
 
   // ------------------------------------------------------------------
   // Host: start sharing
@@ -139,7 +179,11 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   const startShare = React.useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
+        // Ask Chrome to preselect the browser-tab source. A playing video is
+        // drawn on a GPU layer that is not part of a captured window's frames,
+        // so window sharing shows the page but leaves the player blank; tab
+        // capture includes it.
+        video: { displaySurface: "browser" },
         audio: true,
       })
       localStreamRef.current = stream
@@ -235,9 +279,11 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           const answer = signal as WebRTCAnswer
           const pc = peerConnectionsRef.current.get(answer.from)
           if (pc) {
-            pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp })).catch((err) => {
-              console.error("Failed to set remote answer:", err)
-            })
+            pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp }))
+              .then(() => flushIceCandidates(pc))
+              .catch((err) => {
+                console.error("Failed to set remote answer:", err)
+              })
           }
           break
         }
@@ -245,15 +291,13 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           const candidate = signal as WebRTCIceCandidate
           const pc = peerConnectionsRef.current.get(candidate.from)
           if (pc && candidate.candidate) {
-            pc.addIceCandidate(new RTCIceCandidate(candidate.candidate)).catch((err) => {
-              console.error("Failed to add ICE candidate:", err)
-            })
+            addIceCandidateWhenReady(pc, candidate.candidate)
           }
           break
         }
       }
     },
-    []
+    [addIceCandidateWhenReady, flushIceCandidates]
   )
 
   // ------------------------------------------------------------------
@@ -269,6 +313,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     if (stream) {
       stream.getTracks().forEach((track) => track.stop())
     }
+    remoteStreamRef.current = null
     setGuestState({
       remoteStream: null,
       isSharing: false,
@@ -285,17 +330,22 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       switch (signal.type) {
         case "webrtc.offer": {
           const offer = signal as WebRTCOffer
+          // A new offer means the host re-started sharing: drop the previous
+          // connection and its stream so the fresh one replaces it.
+          guestPeerConnectionRef.current?.close()
+          guestPeerConnectionRef.current = null
+          remoteStreamRef.current = null
           const pc = new RTCPeerConnection(getConfiguration())
 
           pc.ontrack = (event) => {
-            if (event.track.kind === "video") {
-              let stream = guestState.remoteStream
-              if (!stream) {
-                stream = new MediaStream()
-                setGuestState((prev) => ({ ...prev, remoteStream: stream }))
-              }
-              stream.addTrack(event.track)
-            }
+            // Video and tab audio arrive as separate track events that share
+            // one remote stream; merge them so adding audio never replaces the
+            // stream that carries the shared video.
+            const stream = mergeRemoteTrack(remoteStreamRef.current, event)
+            remoteStreamRef.current = stream
+            setGuestState((prev) =>
+              prev.remoteStream === stream ? prev : { ...prev, remoteStream: stream }
+            )
           }
 
           pc.onicecandidate = (event) => {
@@ -319,7 +369,10 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           guestPeerConnectionRef.current = pc
 
           pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
-            .then(() => pc.createAnswer())
+            .then(() => {
+              flushIceCandidates(pc)
+              return pc.createAnswer()
+            })
             .then((answer) => pc.setLocalDescription(answer))
             .then(() => {
               const localDesc = pc.localDescription
@@ -343,9 +396,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           const candidate = signal as WebRTCIceCandidate
           const pc = guestPeerConnectionRef.current
           if (pc && candidate.candidate) {
-            pc.addIceCandidate(new RTCIceCandidate(candidate.candidate)).catch((err) => {
-              console.error("Failed to add ICE candidate:", err)
-            })
+            addIceCandidateWhenReady(pc, candidate.candidate)
           }
           break
         }
@@ -363,7 +414,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         }
       }
     },
-    [guestState.remoteStream, sendSignal, stopReceiving]
+    [addIceCandidateWhenReady, flushIceCandidates, sendSignal, stopReceiving]
   )
 
   const value: ScreenShareContextValue = {
