@@ -122,6 +122,12 @@ export function RoomView({
   // When returning to the room while already sharing, re-broadcast screen share
   // state and re-establish peer connections with existing members.
   const hasReannouncedRef = React.useRef(false)
+
+  // Sharing stopped → a later share must announce itself again.
+  useEffect(() => {
+    if (!isSharing) hasReannouncedRef.current = false
+  }, [isSharing])
+
   useEffect(() => {
     if (!isHost || !isSharing || !localStream || !socketConnected || hasReannouncedRef.current)
       return

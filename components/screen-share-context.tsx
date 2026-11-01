@@ -7,6 +7,7 @@ import {
   WebRTCAnswer,
   WebRTCIceCandidate,
 } from "@/lib/webrtc/types"
+import { mergeRemoteTrack } from "@/lib/webrtc/remote-stream"
 
 interface ScreenShareContextValue {
   // Host state
@@ -80,6 +81,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   const peerConnectionsRef = React.useRef<Map<string, RTCPeerConnection>>(new Map())
   const guestPeerConnectionRef = React.useRef<RTCPeerConnection | null>(null)
   const localStreamRef = React.useRef<MediaStream | null>(null)
+  const remoteStreamRef = React.useRef<MediaStream | null>(null)
 
   const iceServers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
@@ -131,7 +133,10 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       error: null,
       peerCount: 0,
     })
-  }, [closeAllPeers])
+    // Tell the room the share ended so guests tear their player down instead
+    // of waiting on a silently dead peer connection.
+    sendSignal({ type: "webrtc.screen-share.stopped", roomId: "", from: "" })
+  }, [closeAllPeers, sendSignal])
 
   // ------------------------------------------------------------------
   // Host: start sharing
@@ -269,6 +274,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     if (stream) {
       stream.getTracks().forEach((track) => track.stop())
     }
+    remoteStreamRef.current = null
     setGuestState({
       remoteStream: null,
       isSharing: false,
@@ -285,17 +291,22 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       switch (signal.type) {
         case "webrtc.offer": {
           const offer = signal as WebRTCOffer
+          // A new offer means the host re-started sharing: drop the previous
+          // connection and its stream so the fresh one replaces it.
+          guestPeerConnectionRef.current?.close()
+          guestPeerConnectionRef.current = null
+          remoteStreamRef.current = null
           const pc = new RTCPeerConnection(getConfiguration())
 
           pc.ontrack = (event) => {
-            if (event.track.kind === "video") {
-              let stream = guestState.remoteStream
-              if (!stream) {
-                stream = new MediaStream()
-                setGuestState((prev) => ({ ...prev, remoteStream: stream }))
-              }
-              stream.addTrack(event.track)
-            }
+            // Video and tab audio arrive as separate track events that share
+            // one remote stream; merge them so adding audio never replaces the
+            // stream that carries the shared video.
+            const stream = mergeRemoteTrack(remoteStreamRef.current, event)
+            remoteStreamRef.current = stream
+            setGuestState((prev) =>
+              prev.remoteStream === stream ? prev : { ...prev, remoteStream: stream }
+            )
           }
 
           pc.onicecandidate = (event) => {
@@ -363,7 +374,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         }
       }
     },
-    [guestState.remoteStream, sendSignal, stopReceiving]
+    [sendSignal, stopReceiving]
   )
 
   const value: ScreenShareContextValue = {

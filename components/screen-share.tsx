@@ -272,6 +272,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
     const [guestVolume, setGuestVolume] = React.useState(1)
     const [isHostFullscreen, setIsHostFullscreen] = React.useState(false)
     const [isGuestFullscreen, setIsGuestFullscreen] = React.useState(false)
+    const [guestNeedsPlay, setGuestNeedsPlay] = React.useState(false)
 
     // Derive connection state from context peerCount / remote stream
     const [hostConnectionState, setHostConnectionState] = React.useState<string>("")
@@ -279,18 +280,23 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
 
     // Sync video elements to streams
     React.useEffect(() => {
-      if (videoRef.current && remoteStream) {
-        videoRef.current.srcObject = remoteStream
-        // Apply guest volume to remote audio
-        const audioTrack = remoteStream.getTracks().find((t) => t.kind === "audio")
-        if (audioTrack) {
-          audioTrack.enabled = !isGuestMuted
-          // Note: MediaStreamTrack doesn't have volume; volume is on the HTMLMediaElement
-          videoRef.current.volume = guestVolume
-        }
-      } else if (videoRef.current) {
-        videoRef.current.srcObject = null
+      const el = videoRef.current
+      if (!el) return
+      if (!remoteStream) {
+        el.srcObject = null
+        return
       }
+      if (el.srcObject !== remoteStream) el.srcObject = remoteStream
+      // Apply guest volume to remote audio
+      const audioTrack = remoteStream.getTracks().find((t) => t.kind === "audio")
+      if (audioTrack) {
+        audioTrack.enabled = !isGuestMuted
+        // Note: MediaStreamTrack doesn't have volume; volume is on the HTMLMediaElement
+        el.volume = guestVolume
+      }
+      // A stream with audio is not always allowed to autoplay; surface a
+      // tap-to-play control instead of leaving a frozen video area.
+      el.play().then(() => setGuestNeedsPlay(false)).catch(() => setGuestNeedsPlay(true))
     }, [remoteStream, isGuestMuted, guestVolume])
 
     React.useEffect(() => {
@@ -564,6 +570,22 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                       hasAudio={!!remoteStream.getTracks().find((t) => t.kind === "audio")}
                       connectionState={guestConnectionState}
                     />
+                    {guestNeedsPlay && (
+                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            videoRef.current
+                              ?.play()
+                              .then(() => setGuestNeedsPlay(false))
+                              .catch(() => {})
+                          }}
+                        >
+                          Click to play shared screen
+                        </Button>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="aspect-video bg-black rounded-lg flex items-center justify-center min-h-[200px]">

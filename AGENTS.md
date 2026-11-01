@@ -48,6 +48,10 @@ Run and verify the app here with `docker compose -f docker-compose.base44.yml up
   `healthy`. Checks run inside the containers, e.g.
   `docker compose -f docker-compose.base44.yml exec -T web npx vitest run`
   (`tsc --noEmit` and `eslint` also work there).
+- **Screen share cannot be driven by automation.** The preview browser has no
+  screen-capture source and a second participant is required, so the WebRTC
+  path is covered by `tests/unit/remote-stream.test.ts` (video and tab audio
+  must merge into one remote stream) plus a manual two-browser check.
 - **Auth is required for almost everything.** Register a throwaway account
   through `/register` to exercise rooms, chat, or the library; there is no seed
   data and no pre-made user.
