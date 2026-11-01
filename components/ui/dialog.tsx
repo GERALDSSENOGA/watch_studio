@@ -35,7 +35,7 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
   if (!open) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
@@ -43,20 +43,20 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
       />
       <div
         ref={containerRef}
-        className="relative w-full max-w-lg m-4 rounded-lg border border-border bg-surface shadow-2xl"
+        className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col rounded-lg border border-border bg-surface shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="dialog-title"
       >
         {title && (
-          <div className="px-4 py-3 border-b border-border">
+          <div className="shrink-0 px-4 py-3 border-b border-border">
             <h2 id="dialog-title" className="text-lg font-semibold">
               {title}
             </h2>
           </div>
         )}
-        <div className="p-4">{children}</div>
-        <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
+        <div className="shrink-0 px-4 py-3 border-t border-border flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>

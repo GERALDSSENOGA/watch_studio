@@ -1,14 +1,13 @@
 import { auth } from "@/lib/auth"
 import { listMedia } from "@/lib/services/media.service"
 import { MediaGrid } from "@/components/media-grid"
-import { Button } from "@/components/ui/button"
+import { AddMediaButton } from "@/components/add-media-button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 
 export default async function LibraryPage({
   searchParams,
 }: {
-  searchParams: { category?: string; search?: string; availability?: string }
+  searchParams: Promise<{ search?: string; availability?: string }>
 }) {
   const session = await auth()
   if (!session?.user) {
@@ -20,10 +19,8 @@ export default async function LibraryPage({
   }
 
   const user = session.user
+  const sp = await searchParams
   const { items, total } = await listMedia(user.id, {
-    category: (searchParams.category ?? undefined) as "FOOTBALL" | "MOVIE" | undefined,
-    search: searchParams.search || undefined,
-    availability: searchParams.availability ?? undefined,
     take: 100,
   })
 
@@ -34,34 +31,15 @@ export default async function LibraryPage({
           <h1 className="text-2xl font-bold">My Library</h1>
           <p className="text-muted-foreground">{total} saved items</p>
         </div>
-        <Button>Add media link</Button>
+        <AddMediaButton />
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-3 mb-6 items-end lg:items-start">
-        <div className="flex-1 max-w-sm">
-          <label className="block text-sm font-medium mb-2">Search</label>
-          <Input
-            placeholder="Title, teams, competition…"
-            defaultValue={searchParams.search ?? ""}
-          />
-        </div>
-        <div className="flex gap-2">
-          <Badge
-            variant={searchParams.category === "FOOTBALL" ? "success" : "default"}
-            className="text-sm px-3 py-2 cursor-pointer"
-          >
-            Football
-          </Badge>
-          <Badge
-            variant={searchParams.category === "MOVIE" ? "default" : "muted"}
-            className="text-sm px-3 py-2 cursor-pointer"
-          >
-            Movies
-          </Badge>
-          <Badge variant="muted" className="text-sm px-3 py-2 cursor-pointer">
-            All
-          </Badge>
-        </div>
+      <div className="flex-1 max-w-sm">
+        <label className="block text-sm font-medium mb-2">Search</label>
+        <Input
+          placeholder="Title…"
+          defaultValue={sp.search ?? ""}
+        />
       </div>
 
       <MediaGrid items={items} />

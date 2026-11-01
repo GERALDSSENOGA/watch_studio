@@ -1,0 +1,327 @@
+================================================================================
+                    WATCHSTUDIO — PROJECT PROMPT & SPECIFICATION
+================================================================================
+Generated: 2026-11-01
+Purpose: Complete project overview for recreation, onboarding, or continuation.
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+WatchStudio is a watch-party web application that lets users save video links
+and watch them together in synchronized rooms. It combines:
+
+  * A personal media library (saved video links with metadata)
+  * Synchronized playback rooms (YouTube IFrame API for synced play/pause/seek)
+  * Real-time chat and presence per room
+  * WebRTC screen sharing (host broadcasts screen/tab audio to guests)
+  * Zoom-style UI (bottom control bar, collapsible sidebar, dark theme)
+
+The platform does NOT host videos. Users submit links to existing videos
+(YouTube, direct .mp4/.webm files, or third-party hosts like FullMatchShows,
+Playmogo, Vixeo, Vidaraa, EmbedSeek, Bysekoze). Embeddable content plays
+inside the room; non-embeddable content opens in a new tab with room chat
+available for coordination.
+
+Tech stack:
+  * Next.js 16.4.2 (App Router, Turbopack)
+  * TypeScript (strict)
+  * Prisma ORM + PostgreSQL
+  * NextAuth.js v5 (JWT sessions)
+  * WebSocket server (native `ws` package, standalone process on port 3001)
+  * Vitest (unit tests, 92 passing)
+  * Tailwind CSS (via shadcn/ui components)
+  * Docker Compose (PostgreSQL 17)
+
+================================================================================
+2. CORE ARCHITECTURE
+================================================================================
+
+2.1 Playback Synchronization (Host-Authoritative)
+
+The host is the source of truth for playback state. The server persists the
+authoritative state in PostgreSQL (PlaybackSession model) and relays it to all
+room members via WebSocket.
+
+Key behaviors:
+  * Host commands (play/pause/seek) are sent to the server with optimistic
+    concurrency (version-based). The server rejects stale commands (409).
+  * Host broadcasts sync state immediately to guests (no waiting for server
+    echo): currentTime (seconds), isPlaying, playbackRate, updatedAt (ms).
+  * Host heartbeat: every 2.5s while playing, rebroadcasts sync state.
+  * Guests apply host sync state only if drift > 1.2 seconds (avoids jitter).
+  * Guests sync play/pause state with host.
+  * Server-side reconciliation every 5s repairs drift for all clients.
+  * New joiners receive latest playback state + latest sync state immediately.
+
+2.2 Providers & Playback Modes
+
+Providers are declared in lib/providers.ts with capabilities:
+
+  Provider         Embed  Sync  Commands  External Fallback  Notes
+  ----------       -----  ----  --------  -----------------  -----
+  youtube          YES    YES   YES       NO                 IFrame API; only publicly embeddable videos
+  direct-file      YES    NO    YES       NO                 Native <video>; local playback only
+  fullmatchshows   NO     NO    NO        YES                Match replay directory; open on provider site
+  playmogo         NO     NO    NO        YES                Third-party video host
+  vixeo            NO     NO    NO        YES                Third-party video host
+  vidaraa          NO     NO    NO        YES                Third-party video host
+  embedseek        NO     NO    NO        YES                Third-party video host
+  bysekoze         NO     NO    NO        YES                Third-party video host
+  generic          NO     NO    NO        YES                Fallback for everything else
+
+Playback modes (stored on MediaItem):
+  * SYNCHRONIZED — embedded player with host-controlled sync (YouTube only)
+  * EXTERNAL — external link or native video; no sync; chat coordination
+  * UNSUPPORTED — not playable (rare, after provider logic)
+
+2.3 WebRTC Screen Sharing
+
+  * Host captures screen via getDisplayMedia({video: true, audio: true}).
+  * Host creates one RTCPeerConnection per guest (mesh topology).
+  * WebSocket relays SDP offers/answers and ICE candidates.
+  * Host controls: Mute/Unmute (audio track), Volume (guests only), Fullscreen,
+    Stop Sharing.
+  * Persistent "Live" badge while sharing; audio muted indicator.
+  * Screen share state persists in a global React Context (ScreenShareProvider)
+    so it survives page navigation. On re-entering a room, the host re-broadcasts
+    screen-share.started and re-creates peer connections with existing members.
+  * Browser STUN servers used; TURN recommended for production (NAT traversal).
+
+================================================================================
+3. DIRECTORY STRUCTURE
+================================================================================
+
+watchstudio/
+├── app/                          # Next.js App Router
+│   ├── layout.tsx                # Root layout (SessionProvider, ToastProvider,
+│   │                           # ScreenShareProvider, env validation)
+│   ├── page.tsx                  # Dashboard (rooms + recent media + add media)
+│   ├── globals.css
+│   ├── middleware.ts             # NextAuth middleware
+│   ├── api/
+│   │   ├── auth/[...nextauth]/   # NextAuth v5 handlers
+│   │   ├── auth/register         # User registration
+│   │   ├── me                    # Current user
+│   │   ├── media                 # GET list, POST create media item
+│   │   ├── media/[id]            # GET/PATCH/DELETE single media item
+│   │   ├── rooms                 # GET list, POST create room
+│   │   ├── rooms/[id]            # GET/PATCH/DELETE room
+│   │   ├── rooms/[id]/member/[userId]  # DELETE member
+│   │   ├── rooms/create/action.ts, list-media-action.ts
+│   │   ├── chat/[roomId]         # GET chat history
+│   │   ├── invitations           # POST create invitation
+│   │   ├── invitations/[token]   # GET accept invitation
+│   │   ├── invitations/revoke    # POST revoke invitation
+│   │   ├── playback/[roomId]     # GET state, POST command
+│   │   ├── reports               # POST report media/link
+│   │   └── matches               # GET proxy to worldcup26.ir football API
+│   ├── football/                 # (removed) was live football match browser
+│   ├── library/                  # My Library page (all media)
+│   ├── movies/                   # Movies page (category=MOVIE media)
+│   ├── media/[id]/               # Media detail page (embed + playback info)
+│   ├── rooms/                    # Watch rooms list & create
+│   ├── rooms/[id]/               # Individual watch room (RoomView)
+│   ├── invitations/              # Invitations list & accept
+│   ├── login/, register/         # Auth pages
+│   └── profile/                  # User profile
+├── components/
+│   ├── ui/                       # shadcn/ui primitives (button, input, card,
+│   │                           # dialog, badge, label, spinner, toast, avatar)
+│   ├── room-view.tsx             # Main watch room (player + sidebar + controls)
+│   ├── room-player.tsx           # Video player (YouTube IFrame + direct file)
+│   ├── room-chat.tsx             # Room chat with message list + input
+│   ├── room-presence.tsx         # Participants list with roles
+│   ├── screen-share.tsx          # Zoom-style screen share UI (mute, volume, FS)
+│   ├── screen-share-context.tsx  # Global screen-share state (persists nav)
+│   ├── error-boundary.tsx        # React error boundary + withErrorBoundary HOC
+│   ├── media-grid.tsx            # Grid of media items with edit/delete
+│   ├── media-form-dialog.tsx     # Add/edit media link modal (title, URL, etc.)
+│   ├── add-media-button.tsx      # Button that opens media form dialog
+│   ├── nav.tsx                   # Top navigation bar
+│   └── players/youtube-player.tsx  # YouTube IFrame Player API adapter
+├── hooks/
+│   ├── useRoomSocket.ts          # WebSocket client (auth, join, chat, playback)
+│   ├── usePlaybackSync.ts        # Host/guest sync logic (deprecated/legacy)
+│   ├── useScreenShare.ts         # Host screen share logic (legacy)
+│   ├── useScreenShareReceiver.ts # Guest screen receive logic (legacy)
+│   └── (screen-share-context.tsx now hosts the active logic)
+├── lib/
+│   ├── providers.ts              # Provider registry, capabilities, URL detection
+│   ├── url.ts                    # HTTPS URL validation, SSRF protection
+│   ├── auth.ts                   # NextAuth v5 config
+│   ├── db.ts                     # Prisma client singleton
+│   ├── ws-auth.ts                # WebSocket JWT session validation
+│   ├── rate-limiter.ts           # HTTP rate limiting
+│   ├── utils.ts                  # General utilities
+│   ├── env-validation.ts         # Startup env var validation
+│   ├── presence.ts               # Presence dedupe logic (shared with WS server)
+│   ├── sync/types.ts             # Playback sync message types/constants
+│   ├── webrtc/types.ts           # WebRTC signaling message types
+│   └── services/
+│       ├── media.service.ts      # Media CRUD, provider detection, playback modes
+│       ├── room.service.ts       # Room CRUD, membership, authorization
+│       ├── playback.service.ts   # Playback session, commands, effective position
+│       ├── chat.service.ts       # Chat message CRUD
+│       ├── invitation.service.ts # Invitation CRUD
+│       └── (room-auth, server-boundary tests)
+├── server/
+│   └── ws.mts                    # Standalone WebSocket server (port 3001)
+├── prisma/
+│   ├── schema.prisma             # Database schema
+│   └── migrations/
+│       ├── 0001_init/
+│       └── 20261101114559_remove_football_category/
+├── tests/
+│   ├── unit/                     # Vitest unit tests (providers, media service, etc.)
+│   └── e2e/                      # Playwright end-to-end tests
+├── docker-compose.yml            # PostgreSQL 17 for local dev
+├── docker-compose.prod.yml       # Production compose
+├── Dockerfile
+├── .env / .env.example           # Environment variables
+├── next.config.ts
+├── tsconfig.json
+├── vitest.config.mts
+├── playwright.config.ts
+└── package.json
+
+================================================================================
+4. DATABASE SCHEMA (Prisma)
+================================================================================
+
+Key models (simplified):
+
+  User
+    id, name, email, passwordHash, role, status, createdAt, updatedAt
+    Relations: accounts, sessions, mediaItems, ownedRooms, memberships, ...
+
+  MediaItem
+    id, ownerId, title, description, category (MOVIE only now),
+    originalUrl, providerId, providerVideoId?, thumbnailUrl?,
+    accessMode (EMBED/EXTERNAL), playbackMode (SYNCHRONIZED/EXTERNAL/UNSUPPORTED),
+    availability, homeTeam?, awayTeam?, competition?, kickoffAt?,
+    matchStatus?, releaseYear?, genre?, durationMins?,
+    visibility, moderationStatus, createdAt, updatedAt
+
+  WatchRoom
+    id, name, description, hostId, currentMediaId?, visibility, status,
+    maxMembers, createdAt, updatedAt
+
+  RoomMember
+    id, roomId, userId, role (HOST/MODERATOR/MEMBER), joinedAt, lastSeenAt
+
+  PlaybackSession
+    id, roomId, mediaId, providerId, state (PLAYING/PAUSED), positionMs,
+    version, updatedAt, updatedById?, status (ACTIVE/ENDED)
+
+  Invitation, ChatMessage, Report, Account, Session, VerificationToken
+
+================================================================================
+5. API ENDPOINTS
+================================================================================
+
+HTTP (Next.js Route Handlers):
+
+  GET/POST   /api/media              List / create media items
+  GET/PATCH/DELETE /api/media/[id]   Read / update / delete media item
+  GET        /api/rooms              List user's rooms
+  POST       /api/rooms              Create room
+  GET/PATCH/DELETE /api/rooms/[id]   Room CRUD
+  DELETE     /api/rooms/[id]/member/[userId]  Remove member
+  GET/POST   /api/playback/[roomId]  Get state / send playback command
+  GET        /api/chat/[roomId]      Chat history
+  POST       /api/invitations        Create invitation
+  GET        /api/invitations/[token] Accept invitation
+  POST       /api/invitations/revoke Revoke invitation
+  GET        /api/me                 Current user
+  POST       /api/auth/register      Register
+  GET/POST   /api/auth/[...nextauth] NextAuth handlers
+  GET        /api/reports            Report media/link
+  GET        /api/matches            Proxy to worldcup26.ir football API
+
+WebSocket (ws.mts, port 3001):
+
+  Client -> Server:
+    {type:"auth", token}                      Authenticate
+    {type:"room.join", roomId}                Join room
+    {type:"chat.send", roomId, body}          Send chat message
+    {type:"playback.command", roomId, command} Host play/pause/seek
+    {type:"playback.reconcile", roomId, version} Request state sync
+    {type:"playback.sync", ...}               Host broadcast sync state
+    {type:"webrtc.offer/answer/ice-candidate"} WebRTC signaling
+    {type:"webrtc.screen-share.started/stopped"} Screen share status
+
+  Server -> Client:
+    auth.ok / auth.error
+    room.joined (with presence)
+    presence.joined / presence.left
+    chat.message
+    playback.state (authoritative)
+    playback.sync (host broadcast)
+    playback.sync.state (latest sync for new joiners)
+    playback.error
+    webrtc.* (relayed between peers)
+
+================================================================================
+6. KEY CONFIGURATION (.env)
+================================================================================
+
+  DATABASE_URL=postgresql://watchstudio:PASS@localhost:5432/watchstudio?sslmode=disable
+  NEXTAUTH_SECRET=openssl rand -base64 32
+  NEXTAUTH_URL=http://localhost:3000
+  AUTH_TRUST_HOST=true
+  WS_PORT=3001
+  WS_ORIGIN=http://localhost:3000
+  NEXT_PUBLIC_WS_URL=ws://localhost:3001
+  YOUTUBE_API_KEY=  (optional, for deeper embeddability checks)
+
+================================================================================
+7. DEVELOPMENT COMMANDS
+================================================================================
+
+  npm install                 Install dependencies
+  npx prisma generate         Generate Prisma client
+  npx prisma migrate dev      Create/apply dev migrations
+  npx prisma migrate deploy   Apply migrations (production)
+  npx next dev                Start Next.js dev server (port 3000)
+  npx next build              Production build
+  npx next start              Start production server
+  npx vitest run              Run unit tests
+  docker compose up -d db     Start PostgreSQL only
+
+================================================================================
+8. KNOWN LIMITATIONS & PRODUCTION CONSIDERATIONS
+================================================================================
+
+  * WebRTC mesh topology: host opens N peer connections for N guests.
+    Scales to ~5-10 guests. For larger rooms, use SFU (MediaSoup/LiveKit).
+  * Third-party video hosts (playmogo, vixeo, etc.) block iframe embedding.
+    They open in a new tab; room chat is used for coordination.
+  * Screen sharing requires HTTPS (getDisplayMedia browser requirement).
+  * Prisma migration permission issues on some Windows setups — run
+    prisma generate / migrate manually if needed.
+  * No user avatar upload yet (names only in presence).
+  * No playlist/queue yet (one media item per room).
+  * Rate limiting on HTTP only; WebSocket connections not rate-limited.
+
+================================================================================
+9. RECENT CHANGES (2026-11-01)
+================================================================================
+
+  * Removed all football category/feature (category is now MOVIE only)
+  * Removed /football and /football/live pages and /api/matches proxy
+  * Added AddMediaButton to Dashboard and Movies pages
+  * Added collapsible Zoom-style sidebar (participants + chat)
+  * Added bottom control bar (Invite friends, Close room, Participants toggle)
+  * Added Zoom-style screen share controls (mute/unmute, volume, fullscreen,
+    stop sharing, persistent Live badge, audio muted indicator)
+  * Made screen share persist across page navigation (global context)
+  * Re-connected screen share on room re-entry (re-broadcast + re-peer)
+  * Added React Error Boundaries around RoomPlayer, ScreenShare, RoomChat
+  * Added environment validation at startup
+  * Fixed WebSocket server WebRTC signal relay (offer/answer/ICE/started/stopped)
+  * All 92 unit tests pass; TypeScript clean; production build succeeds
+
+================================================================================
+END OF PROMPT
+================================================================================

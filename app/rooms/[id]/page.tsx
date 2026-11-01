@@ -3,7 +3,7 @@ import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { getRoom } from "@/lib/services/room.service"
-import { getSession } from "@/lib/services/playback.service"
+import { getSession, effectivePositionMs } from "@/lib/services/playback.service"
 import { listMedia } from "@/lib/services/media.service"
 import { RoomView } from "@/components/room-view"
 
@@ -59,9 +59,12 @@ export default async function RoomPage({
     )
   }
 
-  const playback = await getSession(id)
+  const wsSession = await getSession(id)
+  // Serve the effective position so a client loading mid-playback cues at the
+  // real position, not the (frozen) position captured when play was pressed.
+  const playback = wsSession ? { ...wsSession, positionMs: effectivePositionMs(wsSession) } : null
   const cookieStore = await cookies()
-  const wsToken = cookieStore.get("next-auth.session-token")?.value
+  const wsToken = cookieStore.get("authjs.session-token")?.value
 
   const media = await listMedia(session.user.id, { take: 100 })
   const mediaItems = media.items.map((item: any) => ({ id: item.id, title: item.title }))

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useState, useCallback } from "react"
+import { useState } from "react"
 import { useToast } from "@/components/ui/toast"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,8 +9,9 @@ import { Label } from "@/components/ui/label"
 import { Dialog } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { parseMediaUrl } from "@/lib/url"
+import { detectProvider } from "@/lib/providers"
 
-export type Category = "FOOTBALL" | "MOVIE"
+export type Category = "MOVIE"
 
 interface MediaFormDialogProps {
   open: boolean
@@ -18,6 +19,9 @@ interface MediaFormDialogProps {
   defaultCategory?: Category
   onSuccess?: () => void
   editingItem?: EditableMediaItem | null
+  /** Pre-fill the form when adding a new item.
+   *  Takes a back seat to `editingItem` when both are provided. */
+  defaultValues?: EditableMediaItem | null
 }
 
 export type EditableMediaItem = {
@@ -27,11 +31,6 @@ export type EditableMediaItem = {
   category: Category
   originalUrl: string
   thumbnailUrl: string | null
-  homeTeam: string | null
-  awayTeam: string | null
-  competition: string | null
-  kickoffAt: string | null
-  matchStatus: string | null
   releaseYear: number | null
   genre: string | null
   durationMins: number | null
@@ -40,52 +39,49 @@ export type EditableMediaItem = {
 export function MediaFormDialog({
   open,
   onClose,
-  defaultCategory = "FOOTBALL",
+  defaultCategory = "MOVIE",
   onSuccess,
   editingItem,
+  defaultValues,
 }: MediaFormDialogProps) {
   const { add } = useToast()
   const [submitting, setSubmitting] = useState(false)
-  const [form, setForm] = useState(() => ({
-    title: editingItem?.title ?? "",
-    description: editingItem?.description ?? "",
-    category: editingItem?.category ?? defaultCategory,
-    originalUrl: editingItem?.originalUrl ?? "",
-    thumbnailUrl: editingItem?.thumbnailUrl ?? "",
-    homeTeam: editingItem?.homeTeam ?? "",
-    awayTeam: editingItem?.awayTeam ?? "",
-    competition: editingItem?.competition ?? "",
-    kickoffAt: editingItem?.kickoffAt ?? "",
-    matchStatus: editingItem?.matchStatus ?? "",
-    releaseYear: String(editingItem?.releaseYear ?? ""),
-    genre: editingItem?.genre ?? "",
-    durationMins: String(editingItem?.durationMins ?? ""),
-  }))
 
-  const isFootball = form.category === "FOOTBALL"
+  const seedForm = (item: EditableMediaItem | null | undefined, category: Category) => ({
+    title: item?.title ?? "",
+    description: item?.description ?? "",
+    category: item?.category ?? category,
+    originalUrl: item?.originalUrl ?? "",
+    thumbnailUrl: item?.thumbnailUrl ?? "",
+    releaseYear: String(item?.releaseYear ?? ""),
+    genre: item?.genre ?? "",
+    durationMins: String(item?.durationMins ?? ""),
+  })
 
-  const reset = useCallback(() => {
-    setForm({
-      title: "",
-      description: "",
-      category: defaultCategory,
-      originalUrl: "",
-      thumbnailUrl: "",
-      homeTeam: "",
-      awayTeam: "",
-      competition: "",
-      kickoffAt: "",
-      matchStatus: "",
-      releaseYear: "",
-      genre: "",
-      durationMins: "",
-    })
-  }, [defaultCategory])
+  // `editingItem` takes precedence over `defaultValues`. The dialog stays
+  // mounted across open/close, so we derive a target key that changes whenever
+  // the seed source changes (closed / add / edit item / default values), and
+  // re-seed the form synchronously during render.
+  const seedSource = editingItem ?? defaultValues ?? null
+  const targetKey = open ? editingItem?.id ?? "add" : "closed"
+  const [prevTargetKey, setPrevTargetKey] = useState(targetKey)
+  const [form, setForm] = useState(() => seedForm(seedSource, defaultCategory))
+  if (targetKey !== prevTargetKey) {
+    setPrevTargetKey(targetKey)
+    setForm(seedForm(seedSource, defaultCategory))
+  }
 
-  React.useEffect(() => {
-    if (!open) reset()
-  }, [open, reset])
-
+  // Tell the user up front what a non-YouTube link will do in a room, so
+  // "Mode C" in the room is expected rather than a surprise.
+  let urlCapabilityHint: { synced: boolean; message: string } | null = null
+  if (form.originalUrl.trim()) {
+    const detected = detectProvider(form.originalUrl.trim())
+    if (detected?.providerId === "youtube" && detected.videoId) {
+      urlCapabilityHint = { synced: true, message: "YouTube link: embedded playback with synchronized play, pause and seek in watch rooms." }
+    } else if (parseMediaUrl(form.originalUrl.trim())) {
+      urlCapabilityHint = { synced: false, message: "This link will be added as an external source: it opens on the provider's site, but WatchStudio cannot embed or synchronize playback for it." }
+    }
+  }
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     setSubmitting(true)
@@ -99,17 +95,9 @@ export function MediaFormDialog({
       category: form.category,
       originalUrl: form.originalUrl,
       thumbnailUrl: form.thumbnailUrl || undefined,
-    }
-    if (isFootball) {
-      body.homeTeam = form.homeTeam || undefined
-      body.awayTeam = form.awayTeam || undefined
-      body.competition = form.competition || undefined
-      body.kickoffAt = form.kickoffAt || undefined
-      body.matchStatus = form.matchStatus || undefined
-    } else {
-      body.releaseYear = releaseYear || undefined
-      body.genre = form.genre || undefined
-      body.durationMins = durationMins || undefined
+      releaseYear: releaseYear || undefined,
+      genre: form.genre || undefined,
+      durationMins: durationMins || undefined,
     }
 
     try {
@@ -146,6 +134,7 @@ export function MediaFormDialog({
           <Label htmlFor="title">Title <span className="text-muted-foreground font-normal">*</span></Label>
           <Input
             id="title"
+            name="title"
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
             required
@@ -154,27 +143,10 @@ export function MediaFormDialog({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="category">Type</Label>
-          <div className="grid gap-2">
-            <Button
-              variant={isFootball ? "default" : "ghost"}
-              onClick={(e) => { e.preventDefault(); setForm({ ...form, category: "FOOTBALL" }) }}
-            >
-              Football
-            </Button>
-            <Button
-              variant={!isFootball ? "default" : "ghost"}
-              onClick={(e) => { e.preventDefault(); setForm({ ...form, category: "MOVIE" }) }}
-            >
-              Movie
-            </Button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
           <Label htmlFor="originalUrl">Video link (URL) <span className="text-muted-foreground font-normal">*</span></Label>
           <Input
             id="originalUrl"
+            name="originalUrl"
             type="url"
             value={form.originalUrl}
             onChange={(e) => setForm({ ...form, originalUrl: e.target.value })}
@@ -182,14 +154,20 @@ export function MediaFormDialog({
             required
           />
           <p className="text-xs text-muted-foreground">
-            Only https:// links are accepted. Playback mode is set automatically by the link's provider.
+            Only https:// links are accepted. Playback mode is set automatically by the link&#39;s provider.
           </p>
+          {urlCapabilityHint && (
+            <p className={`text-xs ${urlCapabilityHint.synced ? "text-muted-foreground" : "text-amber-600"}`}>
+              {urlCapabilityHint.message}
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="description">Description (optional)</Label>
           <Input
             id="description"
+            name="description"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
             maxLength={2000}
@@ -200,73 +178,31 @@ export function MediaFormDialog({
           <Label htmlFor="thumbnailUrl">Thumbnail / poster URL (optional)</Label>
           <Input
             id="thumbnailUrl"
+            name="thumbnailUrl"
             type="url"
             value={form.thumbnailUrl}
             onChange={(e) => setForm({ ...form, thumbnailUrl: e.target.value })}
           />
         </div>
 
-        {isFootball ? (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="homeTeam">Home team</Label>
-                <Input
-                  id="homeTeam"
-                  value={form.homeTeam}
-                  onChange={(e) => setForm({ ...form, homeTeam: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="awayTeam">Away team</Label>
-                <Input
-                  id="awayTeam"
-                  value={form.awayTeam}
-                  onChange={(e) => setForm({ ...form, awayTeam: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="competition">Competition</Label>
-              <Input
-                id="competition"
-                value={form.competition}
-                onChange={(e) => setForm({ ...form, competition: e.target.value })}
-              />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="kickoffAt">Kickoff date/time</Label>
-                <Input id="kickoffAt" type="datetime-local" value={form.kickoffAt} onChange={(e) => setForm({ ...form, kickoffAt: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="matchStatus">Status</Label>
-                <Input id="matchStatus" value={form.matchStatus} onChange={(e) => setForm({ ...form, matchStatus: e.target.value })} />
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="releaseYear">Release year</Label>
-                <Input id="releaseYear" type="number" value={form.releaseYear} onChange={(e) => setForm({ ...form, releaseYear: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="genre">Genre</Label>
-                <Input id="genre" value={form.genre} onChange={(e) => setForm({ ...form, genre: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="durationMins">Duration (minutes)</Label>
-                <Input id="durationMins" type="number" value={form.durationMins} onChange={(e) => setForm({ ...form, durationMins: e.target.value })} />
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="space-y-2">
-          <Label htmlFor="originalUrl">All fields above are optional except title and link.</Label>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="releaseYear">Release year</Label>
+            <Input id="releaseYear" type="number" value={form.releaseYear} onChange={(e) => setForm({ ...form, releaseYear: e.target.value })} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="genre">Genre</Label>
+            <Input id="genre" value={form.genre} onChange={(e) => setForm({ ...form, genre: e.target.value })} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="durationMins">Duration (minutes)</Label>
+            <Input id="durationMins" type="number" value={form.durationMins} onChange={(e) => setForm({ ...form, durationMins: e.target.value })} />
+          </div>
         </div>
+
+        <p className="text-xs text-muted-foreground">
+          All fields above are optional except title and link.
+        </p>
 
         <div className="flex justify-end gap-2 pt-4">
           <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>

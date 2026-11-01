@@ -5,7 +5,7 @@ import { createMedia, listMedia } from "@/lib/services/media.service"
 const createSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional().nullable(),
-  category: z.enum(["FOOTBALL", "MOVIE"]),
+  category: z.enum(["MOVIE"]),
   originalUrl: z.string().min(1),
   thumbnailUrl: z.string().max(2000).optional().nullable(),
   homeTeam: z.string().max(100).optional().nullable(),
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   const take = Math.min(Math.max(Number(searchParams.get("take") ?? "50"), 1), 100)
 
   const { items, total } = await listMedia(session.user.id, {
-    category: (category ?? undefined) as "FOOTBALL" | "MOVIE" | undefined,
+    category: (category ?? undefined) as "MOVIE" | undefined,
     search,
     availability: availability ?? undefined,
     take,
@@ -63,11 +63,6 @@ export async function POST(req: Request) {
       category: parsed.data.category,
       originalUrl: parsed.data.originalUrl,
       thumbnailUrl: parsed.data.thumbnailUrl ?? undefined,
-      homeTeam: parsed.data.homeTeam ?? undefined,
-      awayTeam: parsed.data.awayTeam ?? undefined,
-      competition: parsed.data.competition ?? undefined,
-      kickoffAt: parsed.data.kickoffAt ?? undefined,
-      matchStatus: parsed.data.matchStatus ?? undefined,
       releaseYear: parsed.data.releaseYear ?? undefined,
       genre: parsed.data.genre ?? undefined,
       durationMins: parsed.data.durationMins ?? undefined,

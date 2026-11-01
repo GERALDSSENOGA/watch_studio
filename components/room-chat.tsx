@@ -19,13 +19,12 @@ interface ChatMessage {
 interface RoomChatProps {
   roomId: string
   user: { id: string; name: string | null; image: string | null }
-  initialMessages: ChatMessage[]
+  messages: ChatMessage[]
   send: (payload: unknown) => void
   onMessageRemoved?: (messageId: string) => void
 }
 
-export function RoomChat({ roomId, user, initialMessages, send }: RoomChatProps) {
-  const [messages, setMessages] = React.useState<ChatMessage[]>(initialMessages)
+export function RoomChat({ roomId, user, messages, send }: RoomChatProps) {
   const [body, setBody] = React.useState("")
   const [sending, setSending] = React.useState(false)
   const messagesEndRef = React.useRef<HTMLDivElement>(null)

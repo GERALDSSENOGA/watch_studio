@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { AddMediaButton } from "@/components/add-media-button"
 
 export default async function Dashboard() {
   const session = await auth()
@@ -42,7 +43,7 @@ export default async function Dashboard() {
           </CardHeader>
           <CardContent>
             {rooms.length === 0 ? (
-              <p className="text-muted-foreground">You haven't created any rooms yet.</p>
+              <p className="text-muted-foreground">You haven&apos;t created any rooms yet.</p>
             ) : (
               <div className="space-y-3">
                 {rooms.map((room) => (
@@ -73,16 +74,13 @@ export default async function Dashboard() {
           </CardHeader>
           <CardContent>
             {recent.length === 0 ? (
-              <p className="text-muted-foreground">No saved media yet. Add a football or movie link.</p>
+              <p className="text-muted-foreground">No saved media yet. Add a movie link.</p>
             ) : (
               <ul className="space-y-3">
                 {recent.map((item) => (
                   <li key={item.id} className="flex items-center gap-3 p-2 rounded-md border border-transparent hover:bg-surface-hover hover:border-border transition-colors">
-                    <Badge
-                      variant={item.category === "FOOTBALL" ? "success" : "default"}
-                      className="text-xs"
-                    >
-                      {item.category === "FOOTBALL" ? "Football" : "Movie"}
+                    <Badge variant="default" className="text-xs">
+                      Movie
                     </Badge>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{item.title}</p>
@@ -104,8 +102,7 @@ export default async function Dashboard() {
       </div>
 
       <div className="mt-8 flex gap-3">
-        <Link href="/football"><Button>Add football link</Button></Link>
-        <Link href="/movies"><Button variant="ghost">Add movie link</Button></Link>
+        <AddMediaButton />
         <Link href="/rooms/create"><Button variant="ghost">Create watch room</Button></Link>
       </div>
     </div>

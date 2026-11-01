@@ -9,7 +9,6 @@ import { Avatar } from "@/components/ui/avatar"
 
 const navItems = [
   { href: "/", label: "Home" },
-  { href: "/football", label: "Football" },
   { href: "/movies", label: "Movies" },
   { href: "/library", label: "My Library" },
   { href: "/rooms", label: "Watch Rooms" },

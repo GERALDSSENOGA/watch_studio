@@ -23,6 +23,7 @@ function playbackModeFor(providerId: string): MediaPlaybackMode {
   const provider = getProvider(providerId as typeof PROVIDER_IDS.YOUTUBE)
   if (provider.syncSupported) return MediaPlaybackMode.SYNCHRONIZED
   if (provider.embedSupported) return MediaPlaybackMode.EXTERNAL
+  if (provider.externalFallbackRequired) return MediaPlaybackMode.EXTERNAL
   return MediaPlaybackMode.UNSUPPORTED
 }
 
@@ -30,14 +31,9 @@ export async function createMedia(input: {
   ownerId: string
   title: string
   description?: string
-  category: "FOOTBALL" | "MOVIE"
+  category: "MOVIE"
   originalUrl: string
   thumbnailUrl?: string
-  homeTeam?: string
-  awayTeam?: string
-  competition?: string
-  kickoffAt?: string | Date
-  matchStatus?: string
   releaseYear?: number
   genre?: string
   durationMins?: number
@@ -68,11 +64,6 @@ export async function createMedia(input: {
       accessMode: getProvider(providerId).embedSupported ? MediaAccessMode.EMBED : MediaAccessMode.EXTERNAL,
       playbackMode: playbackModeFor(providerId),
       availability: MediaAvailability.AVAILABLE,
-      homeTeam: input.homeTeam?.trim() ?? undefined,
-      awayTeam: input.awayTeam?.trim() ?? undefined,
-      competition: input.competition?.trim() ?? undefined,
-      kickoffAt: input.kickoffAt ?? undefined,
-      matchStatus: input.matchStatus ?? undefined,
       releaseYear: input.releaseYear ?? undefined,
       genre: input.genre?.trim() ?? undefined,
       durationMins: input.durationMins ?? undefined,
@@ -89,7 +80,7 @@ export async function getMedia(id: string, opts?: { ownerId?: string }) {
 }
 
 export async function listMedia(userId: string, opts?: {
-  category?: "FOOTBALL" | "MOVIE"
+  category?: "MOVIE"
   search?: string
   availability?: string
   take?: number
@@ -105,9 +96,6 @@ export async function listMedia(userId: string, opts?: {
     where.OR = [
       { title: { contains: opts.search, mode: "insensitive" } },
       { description: { contains: opts.search, mode: "insensitive" } },
-      { competition: { contains: opts.search, mode: "insensitive" } },
-      { homeTeam: { contains: opts.search, mode: "insensitive" } },
-      { awayTeam: { contains: opts.search, mode: "insensitive" } },
     ]
   }
 
@@ -129,14 +117,9 @@ export async function updateMedia(
   data: {
     title?: string
     description?: string
-    category?: "FOOTBALL" | "MOVIE"
+    category?: "MOVIE"
     originalUrl?: string
     thumbnailUrl?: string
-    homeTeam?: string
-    awayTeam?: string
-    competition?: string
-    kickoffAt?: string | Date | null
-    matchStatus?: string | null
     releaseYear?: number | null
     genre?: string | null
     durationMins?: number | null
@@ -172,11 +155,6 @@ export async function updateMedia(
     updates.playbackMode = playbackModeFor(updates.providerId as typeof PROVIDER_IDS.YOUTUBE)
   }
   if (data.thumbnailUrl !== undefined) updates.thumbnailUrl = data.thumbnailUrl ? data.thumbnailUrl.trim() : undefined
-  if (data.homeTeam !== undefined) updates.homeTeam = data.homeTeam ? data.homeTeam.trim() : undefined
-  if (data.awayTeam !== undefined) updates.awayTeam = data.awayTeam ? data.awayTeam.trim() : undefined
-  if (data.competition !== undefined) updates.competition = data.competition ? data.competition.trim() : undefined
-  if (data.kickoffAt !== undefined) updates.kickoffAt = data.kickoffAt
-  if (data.matchStatus !== undefined) updates.matchStatus = data.matchStatus ? data.matchStatus : undefined
   if (data.releaseYear !== undefined) updates.releaseYear = data.releaseYear
   if (data.genre !== undefined) updates.genre = data.genre ? data.genre.trim() : undefined
   if (data.durationMins !== undefined) updates.durationMins = data.durationMins

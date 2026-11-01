@@ -18,7 +18,7 @@ export async function getOrCreateSession(input: {
   mediaId: string
   providerId: string
 }) {
-  let session = await prisma.playbackSession.findFirst({
+  const session = await prisma.playbackSession.findFirst({
     where: { roomId: input.roomId, status: PlaybackSessionStatus.ACTIVE },
     include: { media: true, updatedBy: { select: { id: true, name: true } } },
   })
@@ -45,6 +45,23 @@ export async function getSession(roomId: string) {
   })
 }
 
+/**
+ * Effective playback position for a session. `positionMs` is the position at
+ * `updatedAt`; while a session is PLAYING the real position keeps advancing,
+ * so consumers that broadcast or serve playback state must add the elapsed
+ * time. Without this, playing clients drift past the (frozen) server position
+ * and periodic reconciliation would seek them backwards every few seconds.
+ */
+export function effectivePositionMs(session: {
+  state: PlaybackState
+  positionMs: number
+  updatedAt: Date
+}): number {
+  if (session.state !== PlaybackState.PLAYING) return session.positionMs
+  const elapsedMs = Math.max(0, Date.now() - new Date(session.updatedAt).getTime())
+  return session.positionMs + elapsedMs
+}
+
 export type PlaybackCommand =
   | { action: "play"; positionMs?: number; version: number }
   | { action: "pause"; positionMs?: number; version: number }
@@ -61,10 +78,9 @@ export async function applyCommand(input: {
     where: { roomId: input.roomId, status: PlaybackSessionStatus.ACTIVE },
   })
 
-  let session: any
-  let justCreated = false
+  let justCreated = existing === null
+  let session: any = existing
   if (existing) {
-    session = existing
     // Optimistic concurrency: command must be built on the current version.
     if (input.command.version !== session.version)
       throw new PlaybackError("STALE_VERSION", "Command is based on an outdated playback state", 409)

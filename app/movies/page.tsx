@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth"
 import { listMedia } from "@/lib/services/media.service"
 import { MediaGrid } from "@/components/media-grid"
+import { AddMediaButton } from "@/components/add-media-button"
 
 export default async function MoviesPage({
   searchParams,
@@ -25,7 +26,10 @@ export default async function MoviesPage({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
-      <h1 className="text-2xl font-bold mb-6">Movies</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Movies</h1>
+        <AddMediaButton />
+      </div>
       <MediaGrid items={items} />
     </div>
   )

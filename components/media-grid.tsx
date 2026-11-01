@@ -8,14 +8,14 @@ import { useToast } from "@/components/ui/toast"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog } from "@/components/ui/dialog"
-import { MediaFormDialog, EditableMediaItem, type Category } from "@/components/media-form-dialog"
+import { MediaFormDialog, EditableMediaItem } from "@/components/media-form-dialog"
 import { detectProvider, getProvider } from "@/lib/providers"
 
 interface MediaItem {
   id: string
   title: string
   description: string | null
-  category: Category
+  category: string
   originalUrl: string
   providerId: string
   providerVideoId: string | null
@@ -23,15 +23,10 @@ interface MediaItem {
   accessMode: string
   playbackMode: string
   availability: string
-  homeTeam: string | null
-  awayTeam: string | null
-  competition: string | null
-  matchStatus: string | null
   releaseYear: number | null
   genre: string | null
   durationMins: number | null
   createdAt: Date
-  kickoffAt: Date | null
 }
 interface MediaGridProps {
   items: MediaItem[]
@@ -89,15 +84,12 @@ export function MediaGrid({ items }: MediaGridProps) {
                   />
                 ) : (
                   <div className="w-full h-40 rounded-md bg-surface-hover flex items-center justify-center text-muted-foreground text-sm mb-3">
-                    {item.category === "FOOTBALL" ? "⚽" : "🎬"}
+                    🎬
                   </div>
                 )}
                 <div className="flex items-center justify-between mb-1">
-                  <Badge
-                    variant={item.category === "FOOTBALL" ? "success" : "default"}
-                    className="text-xs"
-                  >
-                    {item.category === "FOOTBALL" ? "Football" : "Movie"}
+                  <Badge variant="default" className="text-xs">
+                    Movie
                   </Badge>
                   {capabilityLabel(item)}
                 </div>
@@ -111,11 +103,6 @@ export function MediaGrid({ items }: MediaGridProps) {
                   {item.description ?? item.originalUrl}
                 </p>
                 <div className="mt-auto flex items-center gap-1">
-                  {item.homeTeam && item.awayTeam && (
-                    <span className="text-xs text-muted-foreground">
-                      {item.homeTeam} vs {item.awayTeam}
-                    </span>
-                  )}
                   {item.providerId && item.providerVideoId && (
                     <a
                       href={item.providerId === "youtube" ? `https://youtu.be/${item.providerVideoId}` : item.originalUrl}
@@ -138,17 +125,9 @@ export function MediaGrid({ items }: MediaGridProps) {
                         id: item.id,
                         title: item.title,
                         description: item.description,
-                        category: item.category,
+                        category: item.category as "MOVIE",
                         originalUrl: item.originalUrl,
                         thumbnailUrl: item.thumbnailUrl,
-                        homeTeam: item.homeTeam,
-                        awayTeam: item.awayTeam,
-                        competition: item.competition,
-                        kickoffAt:
-                          item.kickoffAt instanceof Date
-                            ? item.kickoffAt.toISOString()
-                            : String(item.kickoffAt ?? null),
-                        matchStatus: item.matchStatus,
                         releaseYear: item.releaseYear,
                         genre: item.genre,
                         durationMins: item.durationMins,

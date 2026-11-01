@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useCallback, useState } from "react"
 
 export type RoomSocketEventHandlers = {
   onAuth?: (user: { id: string; name: string | null; email: string | null; image: string | null }) => void
@@ -25,6 +25,15 @@ export type RoomSocketEventHandlers = {
     media: { id: string; title: string; providerId: string; originalUrl: string }
   }) => void
   onPlaybackError?: (code: string, message?: string) => void
+  onPlaybackSync?: (state: {
+    roomId: string
+    currentTime: number
+    isPlaying: boolean
+    playbackRate: number
+    updatedAt: number
+    hostId: string | null
+  }) => void
+  onWebRTCSignal?: (signal: { type: string; [key: string]: unknown }) => void
   onError?: (code: string, message?: string) => void
   onConnect?: () => void
   onDisconnect?: () => void
@@ -38,7 +47,13 @@ export function useRoomSocket({
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const authenticatedRef = useRef(false)
   const handlersRef = useRef(handlers)
-  handlersRef.current = handlers
+  const connectRef = useRef<(() => void) | null>(null)
+  const [connected, setConnected] = useState(false)
+  const [authenticated, setAuthenticated] = useState(false)
+
+  useEffect(() => {
+    handlersRef.current = handlers
+  }, [handlers])
 
   const baseUrl = (() => {
     if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_WS_URL) {
@@ -60,6 +75,7 @@ export function useRoomSocket({
     wsRef.current = ws
 
     ws.onopen = () => {
+      setConnected(true)
       handlersRef.current.onConnect?.()
     }
 
@@ -71,9 +87,18 @@ export function useRoomSocket({
         return
       }
       const m = message as { type?: string }
+      if (m.type === "auth.ok" || m.type === "auth.error") {
+        console.log("[ws-debug] msg", m.type, "wsRef===ws:", wsRef.current === ws, "wsRef.readyState:", wsRef.current?.readyState, "ws.readyState:", ws.readyState)
+      }
       switch (m.type) {
         case "auth.ok": {
           const mm = m as { user: { id: string; name: string | null; email: string | null; image: string | null } }
+          // The socket that received auth.ok is the live, authenticated one.
+          // Under React StrictMode a remount can leave wsRef pointing at a
+          // stale or nulled socket, so re-point it before notifying handlers,
+          // otherwise room.join is silently dropped.
+          if (wsRef.current !== ws) wsRef.current = ws
+          setAuthenticated(true)
           authenticatedRef.current = true
           handlersRef.current.onAuth?.(mm.user)
           break
@@ -121,16 +146,37 @@ export function useRoomSocket({
           handlersRef.current.onPlaybackError?.(mm.code, mm.message)
           break
         }
+        case "playback.sync.state": {
+          const mm = m as {
+            roomId: string
+            currentTime: number
+            isPlaying: boolean
+            playbackRate: number
+            updatedAt: number
+            hostId: string | null
+          }
+          handlersRef.current.onPlaybackSync?.(mm)
+          break
+        }
+        case "webrtc.offer":
+        case "webrtc.answer":
+        case "webrtc.ice-candidate":
+        case "webrtc.screen-share.started":
+        case "webrtc.screen-share.stopped": {
+          handlersRef.current.onWebRTCSignal?.(m as { type: string; [key: string]: unknown })
+          break
+        }
         default:
           break
       }
     }
 
     ws.onclose = () => {
+      setConnected(false)
       wsRef.current = null
       handlersRef.current.onDisconnect?.()
       if (authenticatedRef.current) {
-        reconnectTimerRef.current = setTimeout(connect, 2000)
+        reconnectTimerRef.current = setTimeout(() => connectRef.current?.(), 2000)
       }
     }
 
@@ -138,6 +184,10 @@ export function useRoomSocket({
       ws.close()
     }
   }, [token, baseUrl])
+
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   const send = useCallback((payload: unknown) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -156,7 +206,7 @@ export function useRoomSocket({
 
   return {
     send,
-    connected: wsRef.current?.readyState === WebSocket.OPEN,
-    authenticated: authenticatedRef.current,
+    connected,
+    authenticated,
   }
 }

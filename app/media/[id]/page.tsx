@@ -68,23 +68,13 @@ export default async function MediaDetailPage({
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2 mb-2">
-                <Badge variant={media.category === "FOOTBALL" ? "success" : "default"}>
-                  {media.category === "FOOTBALL" ? "Football" : "Movie"}
-                </Badge>
+                <Badge variant="default">{media.category}</Badge>
                 <Badge variant="muted">{media.providerId}</Badge>
               </div>
               <CardTitle>{media.title}</CardTitle>
             </CardHeader>
             <CardContent>
               {media.description && <p className="mb-3">{media.description}</p>}
-              {media.category === "FOOTBALL" && media.homeTeam && media.awayTeam && (
-                <p className="text-sm text-muted-foreground mb-2">
-                  {media.homeTeam} vs {media.awayTeam}
-                  {media.competition ? ` · ${media.competition}` : ""}
-                  {media.kickoffAt ? ` · ${new Date(media.kickoffAt).toLocaleString()}` : ""}
-                  {media.matchStatus ? ` · ${media.matchStatus}` : ""}
-                </p>
-              )}
               {media.category === "MOVIE" && (
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                   {media.releaseYear && <span>{media.releaseYear}</span>}

@@ -11,6 +11,12 @@
 export const PROVIDER_IDS = {
   YOUTUBE: "youtube",
   DIRECT_FILE: "direct-file",
+  FULLMATCHSHOWS: "fullmatchshows",
+  PLAYMOGO: "playmogo",
+  VIXEO: "vixeo",
+  VIDARAA: "vidaraa",
+  EMBEDSEEK: "embedseek",
+  BYSEKOZE: "bysekoze",
   GENERIC: "generic",
 } as const
 
@@ -50,18 +56,26 @@ export type ProviderCapabilities = {
  *
  * direct-file: direct video files the browser can play in <video>, where the
  * source is authorized and CORS permits. Synchronization is NOT supported for
- * direct files (no standard control API) — they use external/coordination mode.
+ * direct files (no standard control API) â€” they use external/coordination mode.
  *
- * generic: everything else — external-link fallback only.
+ * fullmatchshows: a match replay directory that links to third-party
+ * video hosts. It cannot be embedded or synchronized; links open on the
+ * site for viewing.
+ *
+ * playmogo / vixeo / vidaraa / embedseek / bysekoze: third-party video hosts
+ * linked from FullMatchShows match pages. They cannot be embedded or
+ * synchronized; links open on the host's site for viewing.
+ *
+ * generic: everything else â€” external-link fallback only.
  */
 export const PROVIDERS: Record<ProviderId, ProviderCapabilities> = {
   youtube: {
     id: PROVIDER_IDS.YOUTUBE,
     name: "YouTube",
     urlPatterns: [
-      /^(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([\w-]{11})/,
-      /^(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([\w-]{11})/,
-      /^(?:https?:\/\/)?youtu\.be\/([\w-]{11})/,
+      /^(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([\w-]{11})/i,
+      /^(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([\w-]{11})/i,
+      /^(?:https?:\/\/)?youtu\.be\/([\w-]{11})/i,
     ],
     embedSupported: true,
     officialApi: true,
@@ -82,6 +96,91 @@ export const PROVIDERS: Record<ProviderId, ProviderCapabilities> = {
     syncSupported: false,
     externalFallbackRequired: false,
     notes: "Browser <video> element. Playback cannot be synchronized across participants.",
+  },
+  fullmatchshows: {
+    id: PROVIDER_IDS.FULLMATCHSHOWS,
+    name: "FullMatchShows",
+    urlPatterns: [
+      /^(?:https?:\/\/)?(?:www\.)?fullmatchshows\.com/i,
+    ],
+    embedSupported: false,
+    officialApi: false,
+    commandsSupported: false,
+    positionReadable: false,
+    syncSupported: false,
+    externalFallbackRequired: true,
+    notes: "FullMatchShows is a match replay directory. Videos are hosted on third-party sites; open the link on FullMatchShows to watch. Playback cannot be embedded or synchronized within WatchStudio.",
+  },
+  playmogo: {
+    id: PROVIDER_IDS.PLAYMOGO,
+    name: "Playmogo",
+    urlPatterns: [
+      /^(?:https?:\/\/)?(?:www\.)?playmogo\.com/i,
+    ],
+    embedSupported: false,
+    officialApi: false,
+    commandsSupported: false,
+    positionReadable: false,
+    syncSupported: false,
+    externalFallbackRequired: true,
+    notes: "Third-party video host. Cannot be embedded or synchronized; open on Playmogo to watch.",
+  },
+  vixeo: {
+    id: PROVIDER_IDS.VIXEO,
+    name: "Vixeo",
+    urlPatterns: [
+      /^(?:https?:\/\/)?(?:www\.)?vixeo\.io/i,
+    ],
+    embedSupported: false,
+    officialApi: false,
+    commandsSupported: false,
+    positionReadable: false,
+    syncSupported: false,
+    externalFallbackRequired: true,
+    notes: "Third-party video host. Cannot be embedded or synchronized; open on Vixeo to watch.",
+  },
+  vidaraa: {
+    id: PROVIDER_IDS.VIDARAA,
+    name: "Vidaraa",
+    urlPatterns: [
+      /^(?:https?:\/\/)?(?:www\.)?vidaraa\.cc/i,
+    ],
+    embedSupported: false,
+    officialApi: false,
+    commandsSupported: false,
+    positionReadable: false,
+    syncSupported: false,
+    externalFallbackRequired: true,
+    notes: "Third-party video host. Cannot be embedded or synchronized; open on Vidaraa to watch.",
+  },
+  embedseek: {
+    id: PROVIDER_IDS.EMBEDSEEK,
+    name: "EmbedSeek",
+    urlPatterns: [
+      /^(?:https?:\/\/)?(?:www\.)?fullmatchshows\.embedseek\.com/i,
+      /^(?:https?:\/\/)?(?:www\.)?embedseek\.com/i,
+    ],
+    embedSupported: false,
+    officialApi: false,
+    commandsSupported: false,
+    positionReadable: false,
+    syncSupported: false,
+    externalFallbackRequired: true,
+    notes: "Third-party video host. Cannot be embedded or synchronized; open on EmbedSeek to watch.",
+  },
+  bysekoze: {
+    id: PROVIDER_IDS.BYSEKOZE,
+    name: "Bysekoze",
+    urlPatterns: [
+      /^(?:https?:\/\/)?(?:www\.)?bysekoze\.com/i,
+    ],
+    embedSupported: false,
+    officialApi: false,
+    commandsSupported: false,
+    positionReadable: false,
+    syncSupported: false,
+    externalFallbackRequired: true,
+    notes: "Third-party video host. Cannot be embedded or synchronized; open on Bysekoze to watch.",
   },
   generic: {
     id: PROVIDER_IDS.GENERIC,

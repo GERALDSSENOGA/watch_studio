@@ -1,0 +1,85 @@
+# WatchStudio — production deployment
+#
+# Prerequisites:
+#   1. Copy .env.production.example to .env.production and fill in real values.
+#   2. docker compose -f docker-compose.prod.yml up -d
+#
+# Services:
+#   db      — PostgreSQL 17 (production database)
+#   migrate — one-off Prisma migration (prisma migrate deploy), exits when done
+#   web     — Next.js production server (npm start) on :3000
+#   ws      — standalone WebSocket server (node server/ws.mts) on :3001
+#
+# Notes:
+#   - web and ws share the same image; the entrypoint is overridden per service.
+#   - The WebSocket server keeps in-memory room/presence state. If you run more
+#     than one `ws` replica, clients on different replicas won't see each other.
+#     Scale `web` freely; keep `ws` at 1 replica unless you add Redis backing.
+
+services:
+  db:
+    image: postgres:17
+    container_name: watchstudio-db
+    environment:
+      POSTGRES_USER: watchstudio
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: watchstudio
+    ports:
+      - "5434:5432"
+    volumes:
+      - watchstudio_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U watchstudio -d watchstudio"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    image: watchstudio
+    container_name: watchstudio-migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    command: npx prisma migrate deploy
+    restart: on-failure
+
+  web:
+    image: watchstudio
+    container_name: watchstudio-web
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    ports:
+      - "3000:3000"
+    command: sh -c "npm start"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/me"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  ws:
+    image: watchstudio
+    container_name: watchstudio-ws
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    ports:
+      - "3001:3001"
+    command: node server/ws.mts
+    restart: unless-stopped
+
+volumes:
+  watchstudio_pgdata:

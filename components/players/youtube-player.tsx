@@ -19,6 +19,19 @@ interface YouTubePlayerProps {
   onError?: (code: number) => void
   onPlaybackRateChange?: (rate: number) => void
   className?: string
+  /** Receives the live player controls once created, so a parent can apply
+   *  server-authoritative playback state to the real player. */
+  controlsRef?: React.MutableRefObject<YouTubeControls | null>
+}
+
+/** Control surface exposed to the parent (RoomPlayer). */
+export interface YouTubeControls {
+  play: () => void
+  pause: () => void
+  seek: (seconds: number) => void
+  getState: () => YT.PlayerState | null
+  getCurrentTime: () => number
+  getPlaybackRate: () => number
 }
 
 export function YouTubePlayer({
@@ -28,44 +41,36 @@ export function YouTubePlayer({
   onError,
   onPlaybackRateChange,
   className,
+  controlsRef,
 }: YouTubePlayerProps) {
   const playerRef = React.useRef<YT.Player | null>(null)
   const [isReady, setIsReady] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const callbacks = React.useRef({ onReady, onStateChange, onError, onPlaybackRateChange })
-  callbacks.current = { onReady, onStateChange, onError, onPlaybackRateChange }
 
   React.useEffect(() => {
-    if (window.YT && window.YT.Player) {
-      createPlayer()
-      return undefined
-    }
+    callbacks.current = { onReady, onStateChange, onError, onPlaybackRateChange }
+  }, [onReady, onStateChange, onError, onPlaybackRateChange])
 
-    const tag = document.createElement("script")
-    tag.src = "https://www.youtube.com/iframe_api"
-    tag.async = true
-    document.head?.appendChild(tag)
+  const controls = React.useMemo<YouTubeControls>(
+    () => ({
+      play: () => playerRef.current?.playVideo(),
+      pause: () => playerRef.current?.pauseVideo(),
+      seek: (seconds: number) => playerRef.current?.seekTo(seconds, true),
+      getState: () => playerRef.current?.getPlayerState() ?? null,
+      getCurrentTime: () => playerRef.current?.getCurrentTime() ?? 0,
+      getPlaybackRate: () => (playerRef.current as any)?.getPlaybackRate?.() ?? 1,
+    }),
+    []
+  )
 
-    const readyHandler = () => createPlayer()
-    ;(window as unknown as { onYouTubeIframeAPIReady?: () => void }).onYouTubeIframeAPIReady = readyHandler
-
+  React.useEffect(() => {
+    if (!controlsRef) return
+    controlsRef.current = controls
     return () => {
-      ;(window as unknown as { onYouTubeIframeAPIReady?: () => void }).onYouTubeIframeAPIReady = undefined
-      try {
-        document.head?.removeChild(tag)
-      } catch {
-        /* ignore */
-      }
-      if (playerRef.current) {
-        try {
-          playerRef.current.destroy()
-        } catch {
-          /* ignore */
-        }
-        playerRef.current = null
-      }
+      controlsRef.current = null
     }
-  }, [])
+  }, [controlsRef, controls])
 
   const createPlayer = React.useCallback(() => {
     if (playerRef.current || !window.YT?.Player) return
@@ -103,10 +108,48 @@ export function YouTubePlayer({
     })
   }, [videoId])
 
-  // Load a different video without recreating the player.
   React.useEffect(() => {
-    if (playerRef.current && isReady) {
-      playerRef.current.loadVideoById(videoId)
+    if (window.YT && window.YT.Player) {
+      createPlayer()
+      return undefined
+    }
+
+    const tag = document.createElement("script")
+    tag.src = "https://www.youtube.com/iframe_api"
+    tag.async = true
+    document.head?.appendChild(tag)
+
+    const readyHandler = () => createPlayer()
+    ;(window as unknown as { onYouTubeIframeAPIReady?: () => void }).onYouTubeIframeAPIReady = readyHandler
+
+    return () => {
+      ;(window as unknown as { onYouTubeIframeAPIReady?: () => void }).onYouTubeIframeAPIReady = undefined
+      try {
+        document.head?.removeChild(tag)
+      } catch {
+        /* ignore */
+      }
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy()
+        } catch {
+          /* ignore */
+        }
+        playerRef.current = null
+      }
+    }
+  }, [createPlayer])
+
+  // Load a different video without recreating the player. Use `cue` (not
+  // `load`): cueVideoById loads the video WITHOUT starting playback, so a
+  // newly loaded player never silently begins playing when the
+  // server-authoritative state is paused. The parent reconciles play/pause
+  // from authoritative state. (The bundled YT types omit cueVideoById even
+  // though the IFrame API defines it.)
+  React.useEffect(() => {
+    const player = playerRef.current as (YT.Player & { cueVideoById?: (id: string) => void }) | null
+    if (player && isReady && typeof player.cueVideoById === "function") {
+      player.cueVideoById(videoId)
       setLoadError(null)
     }
   }, [videoId, isReady])
@@ -134,6 +177,7 @@ export function useYouTubeControls(videoId: string) {
       seek: (seconds: number) => playerRef.current?.seekTo(seconds, true),
       getCurrentTime: () => playerRef.current?.getCurrentTime() ?? 0,
       getPlayerState: () => playerRef.current?.getPlayerState(),
+      getPlaybackRate: () => (playerRef.current as any)?.getPlaybackRate?.() ?? 1,
       isReady: () => !!playerRef.current,
     }
   }, [])
