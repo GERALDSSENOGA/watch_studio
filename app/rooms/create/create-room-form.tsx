@@ -22,9 +22,13 @@ export function CreateRoomForm({ mediaItems, defaultMediaId }: CreateRoomFormPro
   const router = useRouter()
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState("")
+  // Guards against a second submit firing before React re-renders the disabled button.
+  const inFlight = React.useRef(false)
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (inFlight.current) return
+    inFlight.current = true
     const formData = new FormData(event.currentTarget)
     const description = String(formData.get("description") ?? "").trim()
 
@@ -59,6 +63,7 @@ export function CreateRoomForm({ mediaItems, defaultMediaId }: CreateRoomFormPro
     } catch {
       setError("Something went wrong. Try again.")
     } finally {
+      inFlight.current = false
       setLoading(false)
     }
   }
