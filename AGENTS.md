@@ -15,6 +15,15 @@ Run it with `docker compose -f docker-compose.base44.yml up -d`.
 - `npm ci` fails with ERESOLVE: the committed lockfile needs npm's legacy peer
   resolution (vitest 5 optionally peers on `@types/node` 22+, the repo pins 20).
   The `deps` service installs with `--legacy-peer-deps` and then runs `prisma generate`.
+- The `deps` service reinstalls only when `package-lock.json`'s hash differs from the
+  stamp at `node_modules/.base44-lock-hash`. A full `npm ci` wipes the shared
+  `node_modules` volume; if it runs while `web` is up, Turbopack logs
+  "Could not find the Next.js package (next/package.json)" and
+  "Module not found: Can't resolve 'react'" until the install settles — those lines are
+  transient and clear once the install finishes. Once the stamp exists,
+  `up --force-recreate deps` is a no-op that skips the install.
+- After a dependency change, recreate `deps` and let compose restart `web`/`ws`; never
+  run an install against the shared volume while the dev server is serving.
 - Dependencies live in the shared `watchstudio_node_modules` volume, installed by the
   one-shot `deps` service; `migrate` applies `prisma migrate deploy`; `web` and `ws`
   wait for both (`condition: service_completed_successfully`).

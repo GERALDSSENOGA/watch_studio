@@ -39,10 +39,24 @@ services:
     command:
       - sh
       - -ec
+      # Reinstall only when package-lock.json changed. A full `npm ci` wipes
+      # node_modules, and if it runs while `web` is up Turbopack reports
+      # "Could not find the Next.js package" / "Can't resolve 'react'" until the
+      # install settles, so skip it when the volume already matches the lockfile.
+      #
       # --legacy-peer-deps: the committed lockfile resolves cleanly with npm's
       # legacy peer resolution (vitest 5 optionally peers on @types/node 22+,
       # the repo pins @types/node 20).
-      - npm ci --no-audit --no-fund --legacy-peer-deps && npx prisma generate
+      - |
+        want="$(sha256sum package-lock.json | cut -d' ' -f1)"
+        have="$(cat node_modules/.base44-lock-hash 2>/dev/null || true)"
+        if [ "$$want" = "$$have" ] && [ -f node_modules/next/package.json ]; then
+          echo "dependencies already match package-lock.json — skipping npm ci"
+        else
+          npm ci --no-audit --no-fund --legacy-peer-deps
+          printf '%s' "$$want" > node_modules/.base44-lock-hash
+        fi
+        npx prisma generate
     restart: "no"
 
   # One-shot: apply the committed Prisma migration to the database.
