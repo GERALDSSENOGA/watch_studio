@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useCallback, useState } from "react"
 
 export type RoomSocketEventHandlers = {
   onAuth?: (user: { id: string; name: string | null; email: string | null; image: string | null }) => void
@@ -39,6 +39,10 @@ export function useRoomSocket({
   const authenticatedRef = useRef(false)
   const handlersRef = useRef(handlers)
   handlersRef.current = handlers
+  // Connection state must be state, not a ref snapshot: consumers render a
+  // "Connecting…" gate from it, so flipping it has to re-render them.
+  const [connected, setConnected] = useState(false)
+  const [authenticated, setAuthenticated] = useState(false)
 
   const baseUrl = (() => {
     if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_WS_URL) {
@@ -60,6 +64,9 @@ export function useRoomSocket({
     wsRef.current = ws
 
     ws.onopen = () => {
+      // Ignore sockets from an earlier effect run (StrictMode mounts twice).
+      if (wsRef.current !== ws) return
+      setConnected(true)
       handlersRef.current.onConnect?.()
     }
 
@@ -75,6 +82,7 @@ export function useRoomSocket({
         case "auth.ok": {
           const mm = m as { user: { id: string; name: string | null; email: string | null; image: string | null } }
           authenticatedRef.current = true
+          setAuthenticated(true)
           handlersRef.current.onAuth?.(mm.user)
           break
         }
@@ -127,9 +135,16 @@ export function useRoomSocket({
     }
 
     ws.onclose = () => {
+      // A socket left over from a previous effect run must not clear the
+      // current one's refs — that would stop messages being sent forever.
+      if (wsRef.current !== ws) return
+      const wasAuthenticated = authenticatedRef.current
       wsRef.current = null
+      authenticatedRef.current = false
+      setConnected(false)
+      setAuthenticated(false)
       handlersRef.current.onDisconnect?.()
-      if (authenticatedRef.current) {
+      if (wasAuthenticated) {
         reconnectTimerRef.current = setTimeout(connect, 2000)
       }
     }
@@ -156,7 +171,7 @@ export function useRoomSocket({
 
   return {
     send,
-    connected: wsRef.current?.readyState === WebSocket.OPEN,
-    authenticated: authenticatedRef.current,
+    connected,
+    authenticated,
   }
 }

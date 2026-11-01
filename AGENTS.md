@@ -39,6 +39,9 @@ Run it with `docker compose -f docker-compose.base44.yml up -d`.
 - `next.config.ts` appends the preview origin to `allowedDevOrigins` only when
   `BASE44_PREVIEW_MODE === "1"` (Next blocks dev assets/HMR from a foreign origin).
 - Next 16 warns that the `middleware` convention is deprecated in favor of `proxy`; harmless.
+- `hooks/useRoomSocket.ts` keeps `connected`/`authenticated` in React state (the room
+  page gates on them) and ignores callbacks from sockets created by an earlier effect
+  run. When they were ref snapshots, `/rooms/[id]` stayed on "Connecting to room…".
 
 ## Verifying it works
 
@@ -52,6 +55,7 @@ Run it with `docker compose -f docker-compose.base44.yml up -d`.
 
 - `/library`'s "Add media link" button has no click handler, so media can only be
   created through `POST /api/media`.
-- `app/rooms/create/page.tsx` is a server component that calls `React.useState`, so the
-  create-room form cannot render; rooms can be created through `POST /api/rooms`.
+- `/rooms/create` keeps auth + `listMedia` in the server page and renders the
+  interactive form from `app/rooms/create/create-room-form.tsx` (client), which POSTs
+  to `/api/rooms`. Do not add hooks back into the server page.
 - `app/invitations/accept/page.tsx` reads `searchParams.token` without awaiting it.
