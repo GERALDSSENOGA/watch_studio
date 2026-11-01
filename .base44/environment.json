@@ -1,0 +1,18 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/login",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "NEXTAUTH_SECRET",
+      "description": "Auth.js (next-auth v5) session/signing secret, at least 32 characters. Generate with `openssl rand -base64 32`. A development placeholder is supplied so the app boots.",
+      "requiredAtBoot": true,
+      "generatedForDevelopment": true
+    },
+    {
+      "name": "YOUTUBE_API_KEY",
+      "description": "Optional YouTube Data API key for server-side embeddability checks. Not wired yet; the app works without it.",
+      "requiredAtBoot": false
+    }
+  ]
+}
