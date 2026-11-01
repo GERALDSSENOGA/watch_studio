@@ -212,3 +212,4 @@ synchronization logic.
 3. Consider adding OAuth providers (GitHub, Google) alongside credentials auth.
 4. Harden the WebSocket server for multi-process production (Redis-backed
    rate limiting and presence instead of in-memory maps).
+# watch_studio
