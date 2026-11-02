@@ -58,7 +58,11 @@ export function usePlaybackSync({
   const [syncState, setSyncState] = React.useState<PlaybackSyncState | null>(null)
   const heartbeatRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
   const callbacks = React.useRef({ onSyncState })
-  callbacks.current = { onSyncState }
+
+  // Sync the ref in an effect: refs must not be written during render.
+  React.useEffect(() => {
+    callbacks.current = { onSyncState }
+  }, [onSyncState])
 
   // ------------------------------------------------------------------
   // HOST: Broadcast sync state immediately
