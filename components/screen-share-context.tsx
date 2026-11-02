@@ -182,17 +182,13 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   // ------------------------------------------------------------------
   const startShare = React.useCallback(async () => {
     try {
+      // Build displayMedia constraints. Chrome-specific hints
+      // (displaySurface, selfBrowserSurface, surfaceSwitching) are omitted
+      // because Firefox ignores them and may behave unpredictably. We let the
+      // browser's native picker surface the tab/window/screen options, and we
+      // guide the user in the UI to pick the correct tab.
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        // Ask Chrome to preselect the browser-tab source. A playing video is
-        // drawn on a GPU layer that is not part of a captured window's frames,
-        // so window sharing shows the page but leaves the player blank; tab
-        // capture includes it.
-        video: {
-          displaySurface: "browser",
-          selfBrowserSurface: "include",
-          surfaceSwitching: "include",
-          cursor: "always",
-        } as unknown as MediaTrackConstraints,
+        video: true,
         audio: {
           echoCancellation: true,
           noiseSuppression: true,

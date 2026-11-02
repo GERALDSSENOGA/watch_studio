@@ -55,6 +55,12 @@ const StopCircleIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+/** Browser detection for screen-share guidance. Firefox tab capture is
+ * unreliable for video content (blank frames after the first second), so we
+ * guide Firefox users toward native YouTube sync instead. */
+const isFirefox = typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent)
+const isChrome = typeof navigator !== "undefined" && /chrome/i.test(navigator.userAgent) && !isFirefox
+
 const Volume2Icon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.8m8.485-11.314a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.8m2.828-9.9a5 5 0 010 7.072" />
@@ -540,16 +546,39 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                   Start screen sharing
                 </CardTitle>
               </CardHeader>
-              <CardContent className="min-h-[300px] flex items-center justify-center bg-black rounded-lg">
-                <div className="flex flex-col items-center gap-2">
+              <CardContent className="min-h-[300px] flex flex-col items-center justify-center bg-black rounded-lg p-4">
+                <div className="flex flex-col items-center gap-3">
                   <VideoIcon className="w-8 h-8 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">
-                    Click &ldquo;Share Screen&rdquo; to broadcast your screen to the room.
-                  </p>
-                  <p className="text-xs text-muted-foreground max-w-xs text-center">
-                    Pick the <strong>Chrome Tab</strong> source. Sharing a whole window can leave a
-                    playing video blank, because Chrome does not capture its GPU video layer.
-                  </p>
+                  {isFirefox ? (
+                    <>
+                      <p className="text-xs text-amber-200 text-center max-w-xs font-medium">
+                        Firefox tab capture may not render video
+                      </p>
+                      <p className="text-xs text-muted-foreground text-center max-w-xs">
+                        For reliable screen sharing on Firefox, use Chrome instead.
+                        If you must share on Firefox, pick <strong>Tab</strong> (not
+                        Window/Screen) in the picker and know that video may go
+                        blank for viewers.
+                      </p>
+                      <p className="text-xs text-muted-foreground text-center max-w-xs">
+                        Better: paste a YouTube link in your library and use
+                        native synchronized playback.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground">
+                        Click &ldquo;Share Screen&rdquo; to broadcast your screen
+                        to the room.
+                      </p>
+                      <p className="text-xs text-muted-foreground max-w-xs text-center">
+                        Pick the individual <strong>Tab</strong> playing your
+                        video — not &ldquo;Window&rdquo; or &ldquo;Screen.&rdquo;
+                        Tab capture includes video players; window capture does
+                        not.
+                      </p>
+                    </>
+                  )}
                 </div>
               </CardContent>
               <div className="flex gap-2 pt-2 pb-2">
