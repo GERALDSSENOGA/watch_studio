@@ -332,7 +332,7 @@ export function RoomView({
             />
           </ErrorBoundary>
 
-          {room.currentMedia?.providerId !== "youtube" ? (
+          {room.currentMedia?.providerId !== "youtube" || isSharing || isSharingFromHost ? (
             <ErrorBoundary
               fallback={
                 <Card className="text-center py-12 text-muted-foreground">
