@@ -104,6 +104,10 @@ interface ScreenShareControlsProps {
   isFullscreen: boolean
   hasAudio: boolean
   connectionState: string
+  // Microphone
+  hasMic: boolean
+  isMicMuted: boolean
+  onToggleMic: () => void
 }
 
 function ScreenShareControls({
@@ -117,6 +121,10 @@ function ScreenShareControls({
   isFullscreen,
   hasAudio,
   connectionState,
+  // Microphone
+  hasMic,
+  isMicMuted,
+  onToggleMic,
 }: ScreenShareControlsProps) {
   const audioTrack =
     stream?.getTracks().find((t) => t.kind === "audio") ?? null
@@ -170,6 +178,24 @@ function ScreenShareControls({
             >
               {isMuted ? (
                 <MicOffIcon className="w-5 h-5" />
+              ) : (
+                <MicIcon className="w-5 h-5" />
+              )}
+            </Button>
+
+            {/* Mute/Unmute microphone */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onToggleMic}
+              disabled={!hasMic}
+              className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:bg-white/10 text-white/90 hover:text-white transition-all"
+              aria-label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
+              title={!hasMic ? "No microphone captured" : undefined}
+            >
+              {isMicMuted ? (
+                <MicOffIcon className="w-5 h-5 text-amber-400" />
               ) : (
                 <MicIcon className="w-5 h-5" />
               )}
@@ -268,6 +294,18 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
       stopReceiving,
       handleGuestSignal,
       connectionState: hostConnectionState,
+      // Host mic
+      hostMicStream,
+      isHostMicMuted,
+      startHostMic,
+      stopHostMic,
+      toggleHostMic,
+      // Guest mic
+      guestMicStream,
+      isGuestMicMuted,
+      startGuestMic,
+      stopGuestMic,
+      toggleGuestMic,
     } = useScreenShareGlobal()
 
     const videoRef = React.useRef<HTMLVideoElement | null>(null)
@@ -484,6 +522,9 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                     isFullscreen={isHostFullscreen}
                     hasAudio={hasAudio}
                     connectionState={hostConnectionState}
+                    hasMic={!!hostMicStream}
+                    isMicMuted={isHostMicMuted}
+                    onToggleMic={toggleHostMic}
                   />
                 </div>
               </CardContent>
@@ -592,6 +633,16 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                 >
                   {isSharing ? "Sharing…" : "Share Screen"}
                 </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={startHostMic}
+                  disabled={isSharing && !hostMicStream}
+                  className="w-full"
+                >
+                  {hostMicStream ? "Stop Mic" : "Start Mic"}
+                </Button>
               </div>
             </Card>
           )}
@@ -639,6 +690,9 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                       isFullscreen={isGuestFullscreen}
                       hasAudio={!!remoteStream.getTracks().find((t) => t.kind === "audio")}
                       connectionState={guestConnectionState}
+                      hasMic={!!guestMicStream}
+                      isMicMuted={isGuestMicMuted}
+                      onToggleMic={toggleGuestMic}
                     />
                     {guestNeedsPlay && (
                       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50">
@@ -680,6 +734,15 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                 >
                   Leave Screen Share
                 </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleGuestMic}
+                  className="flex-1"
+                >
+                  {isGuestMicMuted ? "Unmute Mic" : "Mute Mic"}
+                </Button>
               </div>
             )}
           </Card>
@@ -687,6 +750,15 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
           <div className="text-center py-8 text-muted-foreground text-sm">
             <LiveIcon className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
             <p>Waiting for the host to start screen sharing…</p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={startGuestMic}
+              className="mt-2"
+            >
+              {guestMicStream ? "Stop Mic" : "Start Mic"}
+            </Button>
           </div>
         )}
       </div>

@@ -22,6 +22,13 @@ interface ScreenShareContextValue {
   handleHostSignal: (signal: WebRTCSignal) => void
   addPeer: (guestId: string, userId: string) => void
 
+  // Host mic
+  hostMicStream: MediaStream | null
+  isHostMicMuted: boolean
+  startHostMic: () => Promise<void>
+  stopHostMic: () => void
+  toggleHostMic: () => void
+
   // Guest state
   remoteStream: MediaStream | null
   isSharingFromHost: boolean
@@ -29,6 +36,13 @@ interface ScreenShareContextValue {
   receiveError: string | null
   stopReceiving: () => void
   handleGuestSignal: (signal: WebRTCSignal) => void
+
+  // Guest mic
+  guestMicStream: MediaStream | null
+  isGuestMicMuted: boolean
+  startGuestMic: () => Promise<void>
+  stopGuestMic: () => void
+  toggleGuestMic: () => void
 
   // Set by RoomView to route WebRTC signals via WebSocket
   setSendSignal: (send: ((signal: WebRTCSignal) => void) | null) => void
@@ -66,6 +80,15 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     connectionState: "",
   })
 
+  // Host microphone state
+  const [hostMicState, setHostMicState] = React.useState<{
+    micStream: MediaStream | null
+    isMuted: boolean
+  }>({
+    micStream: null,
+    isMuted: false,
+  })
+
   // ------------------------------------------------------------------
   // Guest state
   // ------------------------------------------------------------------
@@ -81,10 +104,21 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     error: null,
   })
 
+  // Guest microphone state
+  const [guestMicState, setGuestMicState] = React.useState<{
+    micStream: MediaStream | null
+    isMuted: boolean
+  }>({
+    micStream: null,
+    isMuted: false,
+  })
+
   const peerConnectionsRef = React.useRef<Map<string, RTCPeerConnection>>(new Map())
   const guestPeerConnectionRef = React.useRef<RTCPeerConnection | null>(null)
   const localStreamRef = React.useRef<MediaStream | null>(null)
   const remoteStreamRef = React.useRef<MediaStream | null>(null)
+  const hostMicRef = React.useRef<MediaStream | null>(null)
+  const guestMicRef = React.useRef<MediaStream | null>(null)
   const pendingCandidatesRef = React.useRef<WeakMap<RTCPeerConnection, RTCIceCandidateInit[]>>(
     new WeakMap()
   )
@@ -182,11 +216,6 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   // ------------------------------------------------------------------
   const startShare = React.useCallback(async () => {
     try {
-      // Build displayMedia constraints. Chrome-specific hints
-      // (displaySurface, selfBrowserSurface, surfaceSwitching) are omitted
-      // because Firefox ignores them and may behave unpredictably. We let the
-      // browser's native picker surface the tab/window/screen options, and we
-      // guide the user in the UI to pick the correct tab.
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: {
@@ -201,6 +230,17 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {
         stopShare()
       })
+
+      // If mic is already captured, add its track to the peer connections
+      const micStream = hostMicRef.current
+      if (micStream) {
+        const micTrack = micStream.getAudioTracks()[0]
+        if (micTrack) {
+          for (const [, pc] of peerConnectionsRef.current) {
+            pc.addTrack(micTrack, micStream)
+          }
+        }
+      }
     } catch (err: any) {
       setHostState((prev) => ({
         ...prev,
@@ -218,6 +258,61 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   }, [hostState.isSharing, startShare, stopShare])
 
   // ------------------------------------------------------------------
+  // Host mic capture
+  // ------------------------------------------------------------------
+  const startHostMic = React.useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      hostMicRef.current = stream
+      setHostMicState({ micStream: stream, isMuted: false })
+
+      const micTrack = stream.getAudioTracks()[0]
+      if (micTrack) {
+        // Add mic track to all existing peer connections
+        for (const [, pc] of peerConnectionsRef.current) {
+          pc.addTrack(micTrack, stream)
+        }
+      }
+    } catch (err: any) {
+      setHostState((prev) => ({
+        ...prev,
+        error: err?.message ?? "Failed to access microphone",
+      }))
+    }
+  }, [])
+
+  const stopHostMic = React.useCallback(() => {
+    const stream = hostMicRef.current
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+      hostMicRef.current = null
+    }
+    setHostMicState({ micStream: null, isMuted: false })
+  }, [])
+
+  const toggleHostMic = React.useCallback(() => {
+    if (hostMicState.isMuted) {
+      const stream = hostMicRef.current
+      if (stream) {
+        const track = stream.getAudioTracks()[0]
+        if (track) {
+          track.enabled = true
+          setHostMicState((prev) => ({ ...prev, isMuted: false }))
+        }
+      }
+    } else {
+      const stream = hostMicRef.current
+      if (stream) {
+        const track = stream.getAudioTracks()[0]
+        if (track) {
+          track.enabled = false
+          setHostMicState((prev) => ({ ...prev, isMuted: true }))
+        }
+      }
+    }
+  }, [hostMicState.isMuted])
+
+  // ------------------------------------------------------------------
   // Host: create peer connection for a new guest
   // ------------------------------------------------------------------
   const createPeerForGuest = React.useCallback(
@@ -226,8 +321,18 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
 
       const pc = new RTCPeerConnection(getConfiguration())
 
+      // Add screen tracks
       for (const track of localStreamRef.current.getTracks()) {
         pc.addTrack(track, localStreamRef.current!)
+      }
+
+      // Add mic track if available
+      const micStream = hostMicRef.current
+      if (micStream) {
+        const micTrack = micStream.getAudioTracks()[0]
+        if (micTrack) {
+          pc.addTrack(micTrack, micStream)
+        }
       }
 
       pc.onicecandidate = (event) => {
@@ -254,6 +359,13 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
             ...prev,
             peerCount: peerConnectionsRef.current.size,
           }))
+        }
+      }
+
+      // Receive guest's mic/audio tracks
+      pc.ontrack = (event) => {
+        if (event.track.kind === "audio") {
+          console.log(`[host] received audio track from guest ${guestId}:`, event.track.kind)
         }
       }
 
@@ -329,7 +441,13 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     if (stream) {
       stream.getTracks().forEach((track) => track.stop())
     }
-    remoteStreamRef.current = null
+    // Stop guest mic
+    const micStream = guestMicRef.current
+    if (micStream) {
+      micStream.getTracks().forEach((track) => track.stop())
+      guestMicRef.current = null
+    }
+    setGuestMicState({ micStream: null, isMuted: false })
     setGuestState({
       remoteStream: null,
       isSharing: false,
@@ -346,20 +464,21 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       switch (signal.type) {
         case "webrtc.offer": {
           const offer = signal as WebRTCOffer
-          // An offer also reaches guests who joined after the share began and
-          // never saw the "started" announcement, so mark the share active
-          // from the offer itself — otherwise their player never mounts.
-          setGuestState((prev) => ({
-            ...prev,
-            isSharing: true,
-            sharerId: offer.from ?? prev.sharerId,
-          }))
           // A new offer means the host re-started sharing: drop the previous
           // connection and its stream so the fresh one replaces it.
           guestPeerConnectionRef.current?.close()
           guestPeerConnectionRef.current = null
           remoteStreamRef.current = null
           const pc = new RTCPeerConnection(getConfiguration())
+
+          // Add guest mic track if available
+          const guestMicStream = guestMicRef.current
+          if (guestMicStream) {
+            const micTrack = guestMicStream.getAudioTracks()[0]
+            if (micTrack) {
+              pc.addTrack(micTrack, guestMicStream)
+            }
+          }
 
           pc.ontrack = (event) => {
             // Video and tab audio arrive as separate track events that share
@@ -420,7 +539,9 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           const candidate = signal as WebRTCIceCandidate
           const pc = guestPeerConnectionRef.current
           if (pc && candidate.candidate) {
-            addIceCandidateWhenReady(pc, candidate.candidate)
+            pc.addIceCandidate(new RTCIceCandidate(candidate.candidate)).catch((err) => {
+              console.error("Failed to add ICE candidate:", err)
+            })
           }
           break
         }
@@ -441,6 +562,77 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     [addIceCandidateWhenReady, flushIceCandidates, sendSignal, stopReceiving]
   )
 
+  // ------------------------------------------------------------------
+  // Guest mic capture
+  // ------------------------------------------------------------------
+  const startGuestMic = React.useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      guestMicRef.current = stream
+      setGuestMicState({ micStream: stream, isMuted: false })
+
+      const micTrack = stream.getAudioTracks()[0]
+      if (micTrack) {
+        const pc = guestPeerConnectionRef.current
+        if (pc) {
+          pc.addTrack(micTrack, stream)
+          // Re-create offer to renegotiate with new track
+          pc.createOffer()
+            .then((offer) => pc.setLocalDescription(offer))
+            .then(() => {
+              const localDesc = pc.localDescription
+              if (localDesc) {
+                sendSignal({
+                  type: "webrtc.offer",
+                  roomId: "",
+                  from: "",
+                  to: "", // will be filled by sender
+                  sdp: localDesc.sdp,
+                })
+              }
+            })
+            .catch((err) => console.error("Failed to renegotiate with guest mic:", err))
+        }
+      }
+    } catch (err: any) {
+      setGuestState((prev) => ({
+        ...prev,
+        error: err?.message ?? "Failed to access microphone",
+      }))
+    }
+  }, [sendSignal])
+
+  const stopGuestMic = React.useCallback(() => {
+    const stream = guestMicRef.current
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+      guestMicRef.current = null
+    }
+    setGuestMicState({ micStream: null, isMuted: false })
+  }, [])
+
+  const toggleGuestMic = React.useCallback(() => {
+    if (guestMicState.isMuted) {
+      const stream = guestMicRef.current
+      if (stream) {
+        const track = stream.getAudioTracks()[0]
+        if (track) {
+          track.enabled = true
+          setGuestMicState((prev) => ({ ...prev, isMuted: false }))
+        }
+      }
+    } else {
+      const stream = guestMicRef.current
+      if (stream) {
+        const track = stream.getAudioTracks()[0]
+        if (track) {
+          track.enabled = false
+          setGuestMicState((prev) => ({ ...prev, isMuted: true }))
+        }
+      }
+    }
+  }, [guestMicState.isMuted])
+
   const value: ScreenShareContextValue = {
     // Host
     isSharing: hostState.isSharing,
@@ -453,6 +645,12 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     toggleShare,
     handleHostSignal,
     addPeer,
+    // Host mic
+    hostMicStream: hostMicState.micStream,
+    isHostMicMuted: hostMicState.isMuted,
+    startHostMic,
+    stopHostMic,
+    toggleHostMic,
     // Guest
     remoteStream: guestState.remoteStream,
     isSharingFromHost: guestState.isSharing,
@@ -460,6 +658,12 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     receiveError: guestState.error,
     stopReceiving,
     handleGuestSignal,
+    // Guest mic
+    guestMicStream: guestMicState.micStream,
+    isGuestMicMuted: guestMicState.isMuted,
+    startGuestMic,
+    stopGuestMic,
+    toggleGuestMic,
     setSendSignal,
   }
 
