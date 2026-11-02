@@ -306,15 +306,21 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
     }, [remoteStream, isGuestMuted, guestVolume])
 
     React.useEffect(() => {
-      if (hostVideoRef.current && localStream) {
-        hostVideoRef.current.srcObject = localStream
+      const el = hostVideoRef.current
+      if (el && localStream) {
+        el.srcObject = localStream
         // Host controls volume at the track level (mute/unmute)
         const audioTrack = localStream.getTracks().find((t) => t.kind === "audio")
         if (audioTrack) {
           audioTrack.enabled = !isHostMuted
         }
-      } else if (hostVideoRef.current) {
-        hostVideoRef.current.srcObject = null
+        // The local preview stays muted: an unmuted stream is blocked by the
+        // browser's autoplay policy, which left the host's own share area
+        // blank. The host already hears the shared tab's audio directly.
+        el.muted = true
+        el.play().catch(() => {})
+      } else if (el) {
+        el.srcObject = null
       }
     }, [localStream, isHostMuted])
 
@@ -404,6 +410,11 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
         stream?.getTracks().find((t) => t.kind === "video") ?? null
       const hasAudio = !!audioTrack
       const isAudioEnabled = audioTrack?.enabled ?? true
+      // Chrome captures a window's own page content but not the GPU layer a
+      // playing video is drawn on, so a shared window arrives with a blank
+      // video area. Tab capture includes it.
+      const isWindowCapture =
+        videoTrack?.getSettings().displaySurface === "window"
 
       return (
         <div className="flex flex-col gap-3">
@@ -420,6 +431,26 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
               </Badge>
             )}
           </div>
+
+          {isSharing && stream && isWindowCapture && (
+            <div className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+              <p className="text-xs text-amber-200">
+                You shared a window — video playing inside it arrives blank. Share the
+                Chrome Tab instead.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  stopShare()
+                  void startShare()
+                }}
+              >
+                Share a tab
+              </Button>
+            </div>
+          )}
 
           {isSharing && stream ? (
             <Card className="bg-black relative overflow-hidden">
@@ -513,7 +544,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                 <div className="flex flex-col items-center gap-2">
                   <VideoIcon className="w-8 h-8 text-muted-foreground" />
                   <p className="text-xs text-muted-foreground">
-                    Click "Share Screen" to broadcast your screen to the room.
+                    Click &ldquo;Share Screen&rdquo; to broadcast your screen to the room.
                   </p>
                   <p className="text-xs text-muted-foreground max-w-xs text-center">
                     Pick the <strong>Chrome Tab</strong> source. Sharing a whole window can leave a
@@ -602,7 +633,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                     <div className="flex flex-col items-center gap-2">
                       <Spinner size={32} className="text-muted-foreground" />
                       <span className="text-xs text-muted-foreground">
-                        Connecting to host's screen…
+                        Connecting to host&apos;s screen…
                       </span>
                     </div>
                   </div>

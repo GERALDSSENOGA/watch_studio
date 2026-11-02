@@ -332,7 +332,7 @@ export function RoomView({
             />
           </ErrorBoundary>
 
-          {room.currentMedia?.providerId !== "youtube" ? (
+          {room.currentMedia?.providerId !== "youtube" || isSharing || isSharingFromHost ? (
             <ErrorBoundary
               fallback={
                 <Card className="text-center py-12 text-muted-foreground">
@@ -369,7 +369,7 @@ export function RoomView({
                     play, pause, and seek — no screen sharing needed.
                   </p>
                   <p className="text-xs text-muted-foreground text-center max-w-xs">
-                    Host: use the "Change media" dropdown to select a
+                    Host: use the &ldquo;Change media&rdquo; dropdown to select a
                     YouTube link from your library.
                   </p>
                 </div>
