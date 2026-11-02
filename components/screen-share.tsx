@@ -513,7 +513,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                 <div className="flex flex-col items-center gap-2">
                   <VideoIcon className="w-8 h-8 text-muted-foreground" />
                   <p className="text-xs text-muted-foreground">
-                    Click "Share Screen" to broadcast your screen to the room.
+                    Click &quot;Share Screen&quot; to broadcast your screen to the room.
                   </p>
                   <p className="text-xs text-muted-foreground max-w-xs text-center">
                     Pick the <strong>Chrome Tab</strong> source. Sharing a whole window can leave a
@@ -602,7 +602,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                     <div className="flex flex-col items-center gap-2">
                       <Spinner size={32} className="text-muted-foreground" />
                       <span className="text-xs text-muted-foreground">
-                        Connecting to host's screen…
+                        Connecting to host&apos;s screen…
                       </span>
                     </div>
                   </div>
