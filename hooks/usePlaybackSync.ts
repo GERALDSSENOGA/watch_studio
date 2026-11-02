@@ -57,10 +57,9 @@ export function usePlaybackSync({
 }: UsePlaybackSyncProps): UsePlaybackSyncReturn {
   const [syncState, setSyncState] = React.useState<PlaybackSyncState | null>(null)
   const heartbeatRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
-  // Keep the latest callback in a ref without writing to it during render.
-  // Effects run in declaration order, so this assignment lands before the
-  // effect below consumes it.
   const callbacks = React.useRef({ onSyncState })
+
+  // Sync the ref in an effect: refs must not be written during render.
   React.useEffect(() => {
     callbacks.current = { onSyncState }
   }, [onSyncState])
