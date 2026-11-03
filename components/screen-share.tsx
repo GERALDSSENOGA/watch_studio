@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useScreenShareGlobal } from "@/components/screen-share-context"
-import { Input } from "@/components/ui/input"
+import { ScreenShareControls } from "@/components/screen-share-controls"
 
 interface ScreenShareProps {
   roomId: string
@@ -23,67 +23,15 @@ export interface ScreenShareHandle {
   addPeer: (guestId: string, userId: string) => void
 }
 
-/** Inline SVG icons to avoid adding dependencies. */
-const MicIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 10v2a7 7 0 01-14 0v-2" />
-  </svg>
-)
-
-const MicOffIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a5 5 0 0110 0v.293a3 3 0 01-.172 1.347l1.414 1.414A3 3 0 0115.414 11H13a3 3 0 01-3-3z" />
-  </svg>
-)
-
-const MaximizeIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m-4 4V12m-4 4l4-4m4 4V8m0 0l4-4m4 4l4-4" />
-  </svg>
-)
-
-const MinimizeIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2-2m0 0l-2-2m2 2l-2 2M4 8v8m0 0l4-4m4 4l4-4M16 4l4 4m0 0l-4 4m4-4v8m0 0l-4 4" />
-  </svg>
-)
-
-const StopCircleIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12A4 4 0 100 12a4 4 0 0020 0zM8 12h.01M16 12h.01" />
-  </svg>
-)
-
 /** Browser detection for screen-share guidance. Firefox tab capture is
  * unreliable for video content (blank frames after the first second), so we
  * guide Firefox users toward native YouTube sync instead. */
 const isFirefox = typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent)
-const isChrome = typeof navigator !== "undefined" && /chrome/i.test(navigator.userAgent) && !isFirefox
 
-const Volume2Icon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.8m8.485-11.314a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.8m2.828-9.9a5 5 0 010 7.072" />
-  </svg>
-)
-
-const VolumeOffIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-  </svg>
-)
-
+/** Inline SVG icons to avoid adding dependencies. */
 const VideoIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14m-1-3.586L8.293 7.293a1 1 0 00-1.414 1.414L10.586 13H4a1 1 0 01-1-1V7a1 1 0 011-1h6.586l3.293-3.293a1 1 0 001.414-1.414z" />
-  </svg>
-)
-
-const VideoOffIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14m-1-3.586L8.293 7.293a1 1 0 00-1.414 1.414L10.586 13H4a1 1 0 01-1-1V7a1 1 0 011-1h6.586l3.293-3.293a1 1 0 001.414-1.414z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 )
 
@@ -92,155 +40,6 @@ const LiveIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18v6m0 0l6-6-6-6" />
   </svg>
 )
-
-interface ScreenShareControlsProps {
-  stream: MediaStream | null
-  isMuted: boolean
-  volume: number
-  onToggleMute: () => void
-  onVolumeChange: (v: number) => void
-  onToggleFullscreen: () => void
-  onStop: () => void
-  isFullscreen: boolean
-  hasAudio: boolean
-  connectionState: string
-  // Microphone
-  hasMic: boolean
-  isMicMuted: boolean
-  onToggleMic: () => void
-}
-
-function ScreenShareControls({
-  stream,
-  isMuted,
-  volume,
-  onToggleMute,
-  onVolumeChange,
-  onToggleFullscreen,
-  onStop,
-  isFullscreen,
-  hasAudio,
-  connectionState,
-  // Microphone
-  hasMic,
-  isMicMuted,
-  onToggleMic,
-}: ScreenShareControlsProps) {
-  const audioTrack =
-    stream?.getTracks().find((t) => t.kind === "audio") ?? null
-  const videoTrack =
-    stream?.getTracks().find((t) => t.kind === "video") ?? null
-  const isAudioEnabled = audioTrack?.enabled ?? true
-  const isAudioConnected = connectionState === "connected" || connectionState === ""
-
-  return (
-    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end gap-2 pb-3">
-      {/* Audio muted persistent indicator */}
-      {!isAudioEnabled && stream && (
-        <div className="flex items-center gap-1.5 rounded-full bg-black/80 px-3 py-1 text-[11px] text-white/90 ring-1 ring-white/15 backdrop-blur-sm">
-          <MicOffIcon className="w-3 h-3 text-amber-400" />
-          <span>Audio is muted</span>
-        </div>
-      )}
-
-      {/* Connection state indicator */}
-      {connectionState && connectionState !== "connected" && (
-        <div className="flex items-center gap-1.5 rounded-full bg-red-950/90 px-3 py-1 text-[11px] text-red-100 ring-1 ring-red-500/60 backdrop-blur-sm">
-          <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
-          <span>Connection: {connectionState}</span>
-        </div>
-      )}
-
-      {/* Floating control pill — always on top of the stage, Zoom-style */}
-      <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/10 bg-black/70 p-1.5 shadow-2xl backdrop-blur-md">
-        {/* Mute/Unmute audio */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onToggleMute}
-          disabled={!stream || !hasAudio}
-          className="w-9 h-9 rounded-full text-white/90 hover:bg-white/15 hover:text-white transition-all"
-          aria-label={isMuted ? "Unmute audio" : "Mute audio"}
-          title={!hasAudio ? "No audio track captured" : undefined}
-        >
-          {isMuted ? (
-            <MicOffIcon className="w-4 h-4" />
-          ) : (
-            <MicIcon className="w-4 h-4" />
-          )}
-        </Button>
-
-        {/* Mute/Unmute microphone */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onToggleMic}
-          disabled={!hasMic}
-          className="w-9 h-9 rounded-full text-white/90 hover:bg-white/15 hover:text-white transition-all"
-          aria-label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
-          title={!hasMic ? "No microphone captured" : undefined}
-        >
-          {isMicMuted ? (
-            <MicOffIcon className="w-4 h-4 text-amber-400" />
-          ) : (
-            <MicIcon className="w-4 h-4" />
-          )}
-        </Button>
-
-        {/* Volume slider (guests only - host mutes at source) */}
-        {hasAudio && (
-          <div className="flex items-center gap-1.5 px-2">
-            <VolumeOffIcon className="w-3 h-3 text-white/50" />
-            <Input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={volume}
-              onChange={(e) => onVolumeChange(Number(e.target.value))}
-              className="w-20 h-1 bg-white/20 rounded-lg accent-white cursor-pointer"
-              disabled={isMuted || !isAudioConnected}
-            />
-            <Volume2Icon className="w-3 h-3 text-white/50" />
-          </div>
-        )}
-
-        <span className="mx-1 h-5 w-px bg-white/15" />
-
-        {/* Fullscreen/Exit */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onToggleFullscreen}
-          className="w-9 h-9 rounded-full text-white/90 hover:bg-white/15 hover:text-white transition-all"
-          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-        >
-          {isFullscreen ? (
-            <MinimizeIcon className="w-4 h-4" />
-          ) : (
-            <MaximizeIcon className="w-4 h-4" />
-          )}
-        </Button>
-
-        {/* Stop Sharing */}
-        <Button
-          type="button"
-          variant="danger"
-          size="sm"
-          onClick={onStop}
-          className="ml-1 flex h-9 items-center gap-1.5 rounded-full bg-red-500 border-red-500 px-3 text-xs font-medium text-white hover:bg-red-600 transition-all"
-          aria-label="Stop sharing"
-        >
-          <StopCircleIcon className="w-4 h-4" />
-          Stop
-        </Button>
-      </div>
-    </div>
-  )
-}
 
 const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProps>(
   function ScreenShare({
