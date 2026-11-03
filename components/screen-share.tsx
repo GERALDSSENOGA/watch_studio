@@ -82,6 +82,10 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
 
     const videoRef = React.useRef<HTMLVideoElement | null>(null)
     const hostVideoRef = React.useRef<HTMLVideoElement | null>(null)
+    // Fullscreen the stage (video + control overlay), not the bare <video>, so
+    // the controls stay reachable while watching full screen.
+    const guestStageRef = React.useRef<HTMLDivElement | null>(null)
+    const hostStageRef = React.useRef<HTMLDivElement | null>(null)
 
     const [isHostMuted, setIsHostMuted] = React.useState(false)
     const [isGuestMuted, setIsGuestMuted] = React.useState(false)
@@ -145,9 +149,9 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
       const handleFullscreenChange = () => {
         const el = document.fullscreenElement
         if (isHost) {
-          setIsHostFullscreen(el === hostVideoRef.current)
+          setIsHostFullscreen(el === hostStageRef.current)
         } else {
-          setIsGuestFullscreen(el === videoRef.current)
+          setIsGuestFullscreen(el === guestStageRef.current)
         }
       }
       document.addEventListener("fullscreenchange", handleFullscreenChange)
@@ -179,22 +183,12 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
     }, [isHost, localStream, remoteStream])
 
     const toggleFullscreen = React.useCallback(() => {
-      if (isHost) {
-        const el = hostVideoRef.current
-        if (!el) return
-        if (!document.fullscreenElement) {
-          el.requestFullscreen().catch(() => {})
-        } else {
-          document.exitFullscreen()
-        }
+      const el = isHost ? hostStageRef.current : guestStageRef.current
+      if (!el) return
+      if (!document.fullscreenElement) {
+        el.requestFullscreen().catch(() => {})
       } else {
-        const el = videoRef.current
-        if (!el) return
-        if (!document.fullscreenElement) {
-          el.requestFullscreen().catch(() => {})
-        } else {
-          document.exitFullscreen()
-        }
+        document.exitFullscreen().catch(() => {})
       }
     }, [isHost])
 
@@ -265,7 +259,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
 
           {isSharing && stream ? (
             <div className="relative overflow-hidden rounded-2xl bg-black shadow-2xl ring-1 ring-white/10">
-              <div className="relative aspect-video w-full">
+              <div ref={hostStageRef} className="relative aspect-video w-full bg-black">
                 <video
                   ref={hostVideoRef}
                   autoPlay
@@ -386,18 +380,18 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 min-h-[300px] relative">
-              <div className="relative w-full h-full bg-black">
+              <div ref={guestStageRef} className="relative aspect-video w-full bg-black">
                 {remoteStream ? (
                   <>
                     <video
                       ref={videoRef}
                       autoPlay
                       playsInline
-                      className="w-full h-full object-cover"
+                      className="absolute inset-0 h-full w-full object-contain"
                     />
                     <ScreenShareControls
                       stream={remoteStream}
-                      isMuted={!isGuestMuted}
+                      isMuted={isGuestMuted}
                       volume={guestVolume}
                       onToggleMute={toggleMute}
                       onVolumeChange={setGuestVolume}
