@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { getInvitationStatus, acceptInvitation } from "@/lib/services/invitation.service"
+import { Button } from "@/components/ui/button"
 export default async function AcceptInvitationPage({
   searchParams,
 }: {
@@ -56,7 +57,25 @@ export default async function AcceptInvitationPage({
   // Accept the invitation server-side so the token is never exposed to the browser.
   // Call the service directly (in the same process) instead of looping back over
   // HTTP to /api/invitations/:token, which is unreliable under load.
-  await acceptInvitation({ token, userId: session.user.id })
+  try {
+    await acceptInvitation({ token, userId: session.user.id })
+  } catch (err: any) {
+    // If already a member, just redirect to the room
+    if (err?.code === "ALREADY_MEMBER") {
+      redirect(`/rooms/${status.roomId}`)
+    }
+    return (
+      <div className="mx-auto max-w-2xl px-6 py-12 text-center">
+        <h2 className="text-lg font-medium">Unable to join room</h2>
+        <p className="mt-2 text-muted-foreground">
+          {err?.message ?? "An unexpected error occurred."}
+        </p>
+        <Button type="button" onClick={() => redirect("/rooms")}>
+          Go to rooms
+        </Button>
+      </div>
+    )
+  }
 
   redirect(`/rooms/${status.roomId}`)
 }
