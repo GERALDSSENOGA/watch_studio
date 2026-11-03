@@ -213,10 +213,9 @@ export function ScreenShareControls({
           variant="ghost"
           size="sm"
           onClick={onToggleMic}
-          disabled={!hasMic}
           className={controlClass(isMicMuted)}
-          aria-label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
-          title={!hasMic ? "No microphone captured" : isMicMuted ? "Unmute microphone" : "Mute microphone"}
+          aria-label={!hasMic ? "Start microphone" : isMicMuted ? "Unmute microphone" : "Mute microphone"}
+          title={!hasMic ? "Start microphone" : isMicMuted ? "Unmute microphone" : "Mute microphone"}
         >
           {isMicMuted ? (
             <MicOffIcon className={icon} />
