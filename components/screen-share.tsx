@@ -134,125 +134,10 @@ function ScreenShareControls({
   const isAudioConnected = connectionState === "connected" || connectionState === ""
 
   return (
-    <div className="absolute inset-0 flex flex-col">
-      {/* Video area - controls overlay on hover */}
-      <div className="relative w-full h-full group">
-        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-3 pointer-events-none">
-          {/* Top row: status badges */}
-          <div className="flex justify-between items-start w-full pointer-events-auto gap-2">
-            <Badge
-              variant="default"
-              size="sm"
-              className="bg-black/70 backdrop-blur-sm border border-white/20"
-            >
-              {isMuted ? "Audio muted" : "Audio on"}
-            </Badge>
-            <Badge
-              variant={hasAudio ? "success" : "default"}
-              size="sm"
-              className="bg-black/70 backdrop-blur-sm border border-white/20"
-            >
-              {hasAudio ? "Audio track" : "No audio"}
-            </Badge>
-            <Badge
-              variant={isFullscreen ? "success" : "default"}
-              size="sm"
-              className="bg-black/70 backdrop-blur-sm border border-white/20"
-            >
-              {isFullscreen ? "Fullscreen" : "Windowed"}
-            </Badge>
-          </div>
-
-          {/* Bottom row: control buttons */}
-          <div className="flex items-center justify-between w-full pointer-events-auto mt-3">
-            {/* Mute/Unmute */}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={onToggleMute}
-              disabled={!stream || !hasAudio}
-              className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:bg-white/10 text-white/90 hover:text-white transition-all"
-              aria-label={isMuted ? "Unmute audio" : "Mute audio"}
-              title={!hasAudio ? "No audio track captured" : undefined}
-            >
-              {isMuted ? (
-                <MicOffIcon className="w-5 h-5" />
-              ) : (
-                <MicIcon className="w-5 h-5" />
-              )}
-            </Button>
-
-            {/* Mute/Unmute microphone */}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={onToggleMic}
-              disabled={!hasMic}
-              className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:bg-white/10 text-white/90 hover:text-white transition-all"
-              aria-label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
-              title={!hasMic ? "No microphone captured" : undefined}
-            >
-              {isMicMuted ? (
-                <MicOffIcon className="w-5 h-5 text-amber-400" />
-              ) : (
-                <MicIcon className="w-5 h-5" />
-              )}
-            </Button>
-
-            {/* Volume slider (guests only - host mutes at source) */}
-            {hasAudio && (
-              <div className="flex items-center gap-2 w-32">
-                <VolumeOffIcon className="w-3 h-3 text-white/60" />
-                <Input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={volume}
-                  onChange={(e) => onVolumeChange(Number(e.target.value))}
-                  className="w-full h-1 bg-white/20 rounded-lg accent-accent cursor-pointer"
-                  disabled={isMuted || !isAudioConnected}
-                />
-                <Volume2Icon className="w-3 h-3 text-white/60" />
-              </div>
-            )}
-
-            {/* Fullscreen/Exit */}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={onToggleFullscreen}
-              className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:bg-white/10 text-white/90 hover:text-white transition-all"
-              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-            >
-              {isFullscreen ? (
-                <MinimizeIcon className="w-5 h-5" />
-              ) : (
-                <MaximizeIcon className="w-5 h-5" />
-              )}
-            </Button>
-
-            {/* Stop Sharing */}
-            <Button
-              type="button"
-              variant="danger"
-              size="sm"
-              onClick={onStop}
-              className="w-10 h-10 rounded-full bg-red-500/90 border-red-500 hover:bg-red-500 text-white transition-all"
-              aria-label="Stop sharing"
-            >
-              <StopCircleIcon className="w-5 h-5" />
-            </Button>
-          </div>
-        </div>
-      </div>
-
+    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end gap-2 pb-3">
       {/* Audio muted persistent indicator */}
       {!isAudioEnabled && stream && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 py-1.5 bg-black/80 backdrop-blur-sm border border-white/20 rounded-full text-xs text-white/90">
+        <div className="flex items-center gap-1.5 rounded-full bg-black/80 px-3 py-1 text-[11px] text-white/90 ring-1 ring-white/15 backdrop-blur-sm">
           <MicOffIcon className="w-3 h-3 text-amber-400" />
           <span>Audio is muted</span>
         </div>
@@ -260,11 +145,99 @@ function ScreenShareControls({
 
       {/* Connection state indicator */}
       {connectionState && connectionState !== "connected" && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 py-1.5 bg-red-900/90 backdrop-blur-sm border border-red-500 rounded-full text-xs text-red-100">
+        <div className="flex items-center gap-1.5 rounded-full bg-red-950/90 px-3 py-1 text-[11px] text-red-100 ring-1 ring-red-500/60 backdrop-blur-sm">
           <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
           <span>Connection: {connectionState}</span>
         </div>
       )}
+
+      {/* Floating control pill — always on top of the stage, Zoom-style */}
+      <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/10 bg-black/70 p-1.5 shadow-2xl backdrop-blur-md">
+        {/* Mute/Unmute audio */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onToggleMute}
+          disabled={!stream || !hasAudio}
+          className="w-9 h-9 rounded-full text-white/90 hover:bg-white/15 hover:text-white transition-all"
+          aria-label={isMuted ? "Unmute audio" : "Mute audio"}
+          title={!hasAudio ? "No audio track captured" : undefined}
+        >
+          {isMuted ? (
+            <MicOffIcon className="w-4 h-4" />
+          ) : (
+            <MicIcon className="w-4 h-4" />
+          )}
+        </Button>
+
+        {/* Mute/Unmute microphone */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onToggleMic}
+          disabled={!hasMic}
+          className="w-9 h-9 rounded-full text-white/90 hover:bg-white/15 hover:text-white transition-all"
+          aria-label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
+          title={!hasMic ? "No microphone captured" : undefined}
+        >
+          {isMicMuted ? (
+            <MicOffIcon className="w-4 h-4 text-amber-400" />
+          ) : (
+            <MicIcon className="w-4 h-4" />
+          )}
+        </Button>
+
+        {/* Volume slider (guests only - host mutes at source) */}
+        {hasAudio && (
+          <div className="flex items-center gap-1.5 px-2">
+            <VolumeOffIcon className="w-3 h-3 text-white/50" />
+            <Input
+              type="range"
+              min="0"
+              max="1"
+              step="0.1"
+              value={volume}
+              onChange={(e) => onVolumeChange(Number(e.target.value))}
+              className="w-20 h-1 bg-white/20 rounded-lg accent-white cursor-pointer"
+              disabled={isMuted || !isAudioConnected}
+            />
+            <Volume2Icon className="w-3 h-3 text-white/50" />
+          </div>
+        )}
+
+        <span className="mx-1 h-5 w-px bg-white/15" />
+
+        {/* Fullscreen/Exit */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onToggleFullscreen}
+          className="w-9 h-9 rounded-full text-white/90 hover:bg-white/15 hover:text-white transition-all"
+          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+        >
+          {isFullscreen ? (
+            <MinimizeIcon className="w-4 h-4" />
+          ) : (
+            <MaximizeIcon className="w-4 h-4" />
+          )}
+        </Button>
+
+        {/* Stop Sharing */}
+        <Button
+          type="button"
+          variant="danger"
+          size="sm"
+          onClick={onStop}
+          className="ml-1 flex h-9 items-center gap-1.5 rounded-full bg-red-500 border-red-500 px-3 text-xs font-medium text-white hover:bg-red-600 transition-all"
+          aria-label="Stop sharing"
+        >
+          <StopCircleIcon className="w-4 h-4" />
+          Stop
+        </Button>
+      </div>
     </div>
   )
 }
@@ -469,11 +442,6 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
             {error && (
               <Badge variant="danger" size="sm">{error}</Badge>
             )}
-            {isSharing && (
-              <Badge variant="success" size="sm" className="animate-pulse">
-                <LiveIcon className="w-3 h-3 mr-1" /> Live
-              </Badge>
-            )}
           </div>
 
           {isSharing && stream && isWindowCapture && (
@@ -497,89 +465,38 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
           )}
 
           {isSharing && stream ? (
-            <Card className="bg-black relative overflow-hidden">
-              <CardHeader className="pb-1">
-                <CardTitle className="text-xs text-muted-foreground">
-                  Sharing your screen · {stream.getVideoTracks().length} video track(s) · {hasAudio ? "audio on" : "no audio"}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0 min-h-[300px] relative">
-                <div className="relative w-full h-full bg-black">
-                  <video
-                    ref={hostVideoRef}
-                    autoPlay
-                    playsInline
-                    className="w-full h-full object-cover"
-                  />
-                  <ScreenShareControls
-                    stream={stream}
-                    isMuted={!isAudioEnabled}
-                    volume={hostVolume}
-                    onToggleMute={toggleMute}
-                    onVolumeChange={setHostVolume}
-                    onToggleFullscreen={toggleFullscreen}
-                    onStop={stopShare}
-                    isFullscreen={isHostFullscreen}
-                    hasAudio={hasAudio}
-                    connectionState={hostConnectionState}
-                    hasMic={!!hostMicStream}
-                    isMicMuted={isHostMicMuted}
-                    onToggleMic={toggleHostMic}
-                  />
+            <div className="relative overflow-hidden rounded-2xl bg-black shadow-2xl ring-1 ring-white/10">
+              <div className="relative aspect-video w-full">
+                <video
+                  ref={hostVideoRef}
+                  autoPlay
+                  playsInline
+                  className="h-full w-full object-contain"
+                />
+                {/* Stage chrome — live chip, Zoom-style */}
+                <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 rounded-full bg-black/70 px-2.5 py-1 text-[11px] font-medium text-white ring-1 ring-white/15 backdrop-blur-sm">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
+                    You are sharing
+                  </span>
                 </div>
-              </CardContent>
-              <div className="flex gap-2 pt-2 pb-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={toggleMute}
-                  disabled={!stream || !hasAudio}
-                  className="flex-1"
-                >
-                  {!isAudioEnabled ? (
-                    <>
-                      <MicOffIcon className="w-4 h-4 mr-2" />
-                      Unmute
-                    </>
-                  ) : (
-                    <>
-                      <MicIcon className="w-4 h-4 mr-2" />
-                      Mute
-                    </>
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={toggleFullscreen}
-                  className="flex-1"
-                >
-                  {isHostFullscreen ? (
-                    <>
-                      <MinimizeIcon className="w-4 h-4 mr-2" />
-                      Exit fullscreen
-                    </>
-                  ) : (
-                    <>
-                      <MaximizeIcon className="w-4 h-4 mr-2" />
-                      Fullscreen
-                    </>
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="danger"
-                  size="sm"
-                  onClick={stopShare}
-                  className="flex-1"
-                >
-                  <StopCircleIcon className="w-4 h-4 mr-2" />
-                  Stop sharing
-                </Button>
+                <ScreenShareControls
+                  stream={stream}
+                  isMuted={!isAudioEnabled}
+                  volume={hostVolume}
+                  onToggleMute={toggleMute}
+                  onVolumeChange={setHostVolume}
+                  onToggleFullscreen={toggleFullscreen}
+                  onStop={stopShare}
+                  isFullscreen={isHostFullscreen}
+                  hasAudio={hasAudio}
+                  connectionState={hostConnectionState}
+                  hasMic={!!hostMicStream}
+                  isMicMuted={isHostMicMuted}
+                  onToggleMic={toggleHostMic}
+                />
               </div>
-            </Card>
+            </div>
           ) : (
             <Card className="relative overflow-hidden">
               <CardHeader className="pb-1">

@@ -377,7 +377,7 @@ export function RoomView({
             </Card>
           )}
 
-          {!room.currentMedia && (
+          {!room.currentMedia && !isSharing && !isSharingFromHost && (
             <Card className="text-center py-12 text-muted-foreground">
               <CardContent>
                 No media selected. Host: choose media above, or edit the room to add a saved link.
