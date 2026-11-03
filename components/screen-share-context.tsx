@@ -8,6 +8,16 @@ import {
   WebRTCIceCandidate,
 } from "@/lib/webrtc/types"
 import { mergeRemoteTrack } from "@/lib/webrtc/remote-stream"
+import {
+  getMicrophoneList,
+  getSpeakerList,
+  getActiveMicrophone,
+  getActiveSpeaker,
+  switchMicrophone,
+  switchSpeaker,
+  createAudioLevelMonitor,
+  AudioDevice,
+} from "@/lib/webrtc/audio-devices"
 
 interface ScreenShareContextValue {
   // Host state
@@ -43,6 +53,23 @@ interface ScreenShareContextValue {
   startGuestMic: () => Promise<void>
   stopGuestMic: () => void
   toggleGuestMic: () => void
+
+  // Audio device management
+  microphones: AudioDevice[]
+  speakers: AudioDevice[]
+  activeMicrophone: string | null
+  activeSpeaker: string | null
+  refreshDevices: () => Promise<void>
+  switchMicrophoneDevice: (deviceId: string) => Promise<void>
+  switchSpeakerDevice: (deviceId: string) => Promise<void>
+
+  // Active speaker detection
+  activeSpeakerId: string | null
+  audioLevels: Map<string, number>
+
+  // Screen share quality mode
+  screenShareQuality: "balanced" | "performance" | "quality"
+  setScreenShareQuality: (quality: "balanced" | "performance" | "quality") => void
 
   // Set by RoomView to route WebRTC signals via WebSocket
   setSendSignal: (send: ((signal: WebRTCSignal) => void) | null) => void
@@ -113,6 +140,19 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     isMuted: false,
   })
 
+  // Audio device management state
+  const [microphones, setMicrophones] = React.useState<AudioDevice[]>([])
+  const [speakers, setSpeakers] = React.useState<AudioDevice[]>([])
+  const [activeMicrophone, setActiveMicrophone] = React.useState<string | null>(null)
+  const [activeSpeaker, setActiveSpeaker] = React.useState<string | null>(null)
+
+  // Active speaker detection state
+  const [activeSpeakerId, setActiveSpeakerId] = React.useState<string | null>(null)
+  const [audioLevels, setAudioLevels] = React.useState<Map<string, number>>(new Map())
+
+  // Screen share quality mode
+  const [screenShareQuality, setScreenShareQuality] = React.useState<"balanced" | "performance" | "quality">("balanced")
+
   const peerConnectionsRef = React.useRef<Map<string, RTCPeerConnection>>(new Map())
   const guestPeerConnectionRef = React.useRef<RTCPeerConnection | null>(null)
   const localStreamRef = React.useRef<MediaStream | null>(null)
@@ -121,6 +161,9 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   const guestMicRef = React.useRef<MediaStream | null>(null)
   const pendingCandidatesRef = React.useRef<WeakMap<RTCPeerConnection, RTCIceCandidateInit[]>>(
     new WeakMap()
+  )
+  const audioMonitorRef = React.useRef<Map<string, { getLevel: () => number; destroy: () => void }>>(
+    new Map()
   )
 
   // ------------------------------------------------------------------
@@ -176,6 +219,63 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
 
   const sendSignal = React.useCallback((signal: WebRTCSignal) => {
     sendSignalRef.current?.(signal)
+  }, [])
+
+  // ------------------------------------------------------------------
+  // Audio device management
+  // ------------------------------------------------------------------
+  const refreshDevices = React.useCallback(async () => {
+    try {
+      const [mics, speakers] = await Promise.all([getMicrophoneList(), getSpeakerList()])
+      setMicrophones(mics)
+      setSpeakers(speakers)
+
+      // Set active microphone from current host mic stream
+      if (hostMicRef.current) {
+        setActiveMicrophone(getActiveMicrophone(hostMicRef.current))
+      }
+      if (guestMicRef.current) {
+        setActiveMicrophone(getActiveMicrophone(guestMicRef.current))
+      }
+    } catch (err) {
+      console.error("Failed to refresh audio devices:", err)
+    }
+  }, [])
+
+  const switchMicrophoneDevice = React.useCallback(
+    async (deviceId: string) => {
+      try {
+        const newStream = await switchMicrophone(hostMicRef.current ?? null, deviceId)
+        if (newStream) {
+          hostMicRef.current = newStream
+          setHostMicState({ micStream: newStream, isMuted: hostMicState.isMuted })
+          setActiveMicrophone(deviceId)
+
+          // Add mic track to all existing peer connections
+          const micTrack = newStream.getAudioTracks()[0]
+          if (micTrack) {
+            for (const [, pc] of peerConnectionsRef.current) {
+              pc.addTrack(micTrack, newStream)
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to switch microphone:", err)
+      }
+    },
+    [hostMicState.isMuted]
+  )
+
+  const switchSpeakerDevice = React.useCallback(async (deviceId: string) => {
+    try {
+      const videoEls = document.querySelectorAll("video")
+      for (const el of videoEls) {
+        await switchSpeaker(el as HTMLVideoElement, deviceId)
+      }
+      setActiveSpeaker(deviceId)
+    } catch (err) {
+      console.error("Failed to switch speaker:", err)
+    }
   }, [])
 
   // ------------------------------------------------------------------
@@ -633,6 +733,60 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     }
   }, [guestMicState.isMuted])
 
+  // ------------------------------------------------------------------
+  // Active speaker detection
+  // ------------------------------------------------------------------
+  React.useEffect(() => {
+    const stream = remoteStreamRef.current
+    if (!stream) {
+      setActiveSpeakerId(null)
+      setAudioLevels(new Map())
+      return
+    }
+
+    const track = stream.getAudioTracks()[0]
+    if (!track) {
+      setActiveSpeakerId(null)
+      setAudioLevels(new Map())
+      return
+    }
+
+    const monitor = createAudioLevelMonitor(track)
+    audioMonitorRef.current.set(guestState.sharerId || "host", monitor)
+
+    const updateLevels = () => {
+      const levels = new Map(audioLevels)
+      audioMonitorRef.current.forEach((mon, uid) => {
+        levels.set(uid, mon.getLevel())
+      })
+      setAudioLevels(levels)
+
+      let maxLevel = 0
+      let maxUserId: string | null = null
+      levels.forEach((level, uid) => {
+        if (level > maxLevel && level > 0.1) {
+          maxLevel = level
+          maxUserId = uid
+        }
+      })
+      setActiveSpeakerId(maxUserId)
+
+      requestAnimationFrame(updateLevels)
+    }
+
+    updateLevels()
+
+    return () => {
+      monitor.destroy()
+      audioMonitorRef.current.delete(guestState.sharerId || "host")
+    }
+  }, [remoteStreamRef.current, guestState.sharerId, audioLevels])
+
+  // Refresh audio devices on mount
+  React.useEffect(() => {
+    refreshDevices()
+  }, [refreshDevices])
+
   const value: ScreenShareContextValue = {
     // Host
     isSharing: hostState.isSharing,
@@ -664,6 +818,20 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     startGuestMic,
     stopGuestMic,
     toggleGuestMic,
+    // Audio device management
+    microphones,
+    speakers,
+    activeMicrophone,
+    activeSpeaker,
+    refreshDevices,
+    switchMicrophoneDevice,
+    switchSpeakerDevice,
+    // Active speaker detection
+    activeSpeakerId,
+    audioLevels,
+    // Screen share quality mode
+    screenShareQuality,
+    setScreenShareQuality,
     setSendSignal,
   }
 
