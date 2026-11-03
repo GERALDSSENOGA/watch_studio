@@ -44,6 +44,8 @@ interface ScreenShareContextValue {
   isSharingFromHost: boolean
   sharerId: string | null
   receiveError: string | null
+  /** Live RTCPeerConnectionState for the guest's single peer connection. */
+  guestConnectionState: string
   stopReceiving: () => void
   handleGuestSignal: (signal: WebRTCSignal) => void
 
@@ -124,11 +126,13 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     isSharing: boolean
     sharerId: string | null
     error: string | null
+    connectionState: string
   }>({
     remoteStream: null,
     isSharing: false,
     sharerId: null,
     error: null,
+    connectionState: "",
   })
 
   // Guest microphone state
@@ -165,6 +169,18 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   const audioMonitorRef = React.useRef<Map<string, { getLevel: () => number; destroy: () => void }>>(
     new Map()
   )
+  // Guest microphones arrive as audio-only tracks; each needs an element to
+  // actually play through the host's speakers.
+  const guestAudioElementsRef = React.useRef<Map<string, HTMLAudioElement>>(new Map())
+  const reconnectAttemptsRef = React.useRef<Map<string, number>>(new Map())
+  const recreatePeerRef = React.useRef<((guestId: string, userId: string) => void) | null>(null)
+  // Grace timers for a transient "disconnected". A momentary blip (network
+  // switch, tab throttling, an ICE candidate in flight) recovers on its own;
+  // only after the grace period do we attempt an ICE restart, so a healthy
+  // share is not torn down over a hiccup.
+  const graceTimersRef = React.useRef<
+    WeakMap<RTCPeerConnection, ReturnType<typeof setTimeout>>
+  >(new WeakMap())
 
   // ------------------------------------------------------------------
   // ICE candidates routinely arrive before the SDP that describes them.
@@ -198,6 +214,31 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     }
   }, [])
 
+  // ------------------------------------------------------------------
+  // SDP operations are async, and signals can arrive twice or out of order.
+  // Running them concurrently (or applying a duplicate answer) throws
+  // InvalidStateError — "Cannot set remote answer in state stable" — and
+  // breaks the share, so every negotiation step is serialized per connection.
+  // ------------------------------------------------------------------
+  const signalingQueuesRef = React.useRef<WeakMap<RTCPeerConnection, Promise<void>>>(
+    new WeakMap()
+  )
+
+  const enqueueSignaling = React.useCallback(
+    (pc: RTCPeerConnection, task: () => Promise<void>) => {
+      // The tail `.catch` swallows errors, so the stored queue promise never
+      // rejects; a failed step therefore cannot poison the steps that follow
+      // it. (The previous `.then(task, task)` also ran the task as the
+      // rejection handler — redundant, since the chain never rejects.)
+      const previous = signalingQueuesRef.current.get(pc) ?? Promise.resolve()
+      const next = previous
+        .then(task)
+        .catch((err) => console.error("Failed to apply signalling step:", err))
+      signalingQueuesRef.current.set(pc, next)
+    },
+    []
+  )
+
   const iceServers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
@@ -220,6 +261,93 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   const sendSignal = React.useCallback((signal: WebRTCSignal) => {
     sendSignalRef.current?.(signal)
   }, [])
+
+  // ------------------------------------------------------------------
+  // Diagnostics: WebRTC exposes three independent states (signaling, ICE,
+  // connection). Logging all three at every transition makes a drop visible at
+  // the exact moment it happens instead of after the fact.
+  // ------------------------------------------------------------------
+  const logPeer = React.useCallback((label: string, pc: RTCPeerConnection) => {
+    console.debug(
+      `[webrtc:${label}] signaling=${pc.signalingState} ice=${pc.iceConnectionState} conn=${pc.connectionState}`
+    )
+  }, [])
+
+  const clearGrace = React.useCallback((pc: RTCPeerConnection) => {
+    const timer = graceTimersRef.current.get(pc)
+    if (timer) {
+      clearTimeout(timer)
+      graceTimersRef.current.delete(pc)
+    }
+  }, [])
+
+  // The host may hold one peer connection per guest. Deriving the indicator
+  // from the whole map (instead of whichever peer fired last) stops it from
+  // flip-flopping between "connecting" and "closed" as guests join/retry.
+  const refreshHostConnectionState = React.useCallback(() => {
+    const states = Array.from(peerConnectionsRef.current.values()).map(
+      (peer) => peer.connectionState
+    )
+    const aggregate =
+      states.length === 0
+        ? ""
+        : states.includes("connected")
+          ? "connected"
+          : states.includes("connecting") || states.includes("new")
+            ? "connecting"
+            : states.includes("disconnected")
+              ? "disconnected"
+              : "failed"
+    setHostState((prev) =>
+      prev.connectionState === aggregate ? prev : { ...prev, connectionState: aggregate }
+    )
+  }, [])
+
+  // Host-initiated renegotiation. Used both by onnegotiationneeded (new track)
+  // and by the ICE-restart recovery path.
+  const hostRenegotiate = React.useCallback(
+    (pc: RTCPeerConnection, guestId: string, userId: string, iceRestart = false) => {
+      enqueueSignaling(pc, async () => {
+        if (pc.signalingState !== "stable") return
+        const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined)
+        await pc.setLocalDescription(offer)
+        if (pc.localDescription) {
+          logPeer(`host:${guestId}:offer`, pc)
+          sendSignal({
+            type: "webrtc.offer",
+            roomId: "",
+            from: userId,
+            to: guestId,
+            sdp: pc.localDescription.sdp,
+          })
+        }
+      })
+    },
+    [enqueueSignaling, sendSignal, logPeer]
+  )
+
+  // Guest-initiated renegotiation (late mic, or ICE-restart recovery). The host
+  // answers via its webrtc.offer handler.
+  const guestRenegotiate = React.useCallback(
+    (pc: RTCPeerConnection, hostId: string, iceRestart = false) => {
+      enqueueSignaling(pc, async () => {
+        if (pc.signalingState !== "stable") return
+        const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined)
+        await pc.setLocalDescription(offer)
+        if (pc.localDescription) {
+          logPeer("guest:offer", pc)
+          sendSignal({
+            type: "webrtc.offer",
+            roomId: "",
+            from: "",
+            to: hostId,
+            sdp: pc.localDescription.sdp,
+          })
+        }
+      })
+    },
+    [enqueueSignaling, sendSignal, logPeer]
+  )
 
   // ------------------------------------------------------------------
   // Audio device management
@@ -286,6 +414,11 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       pc.close()
     }
     peerConnectionsRef.current.clear()
+    for (const [, el] of guestAudioElementsRef.current) {
+      el.pause()
+      el.srcObject = null
+    }
+    guestAudioElementsRef.current.clear()
     setHostState((prev) => ({ ...prev, peerCount: 0 }))
   }, [])
 
@@ -315,14 +448,24 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   // Host: start sharing
   // ------------------------------------------------------------------
   const startShare = React.useCallback(async () => {
+    const isFirefox =
+      typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent)
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 48000,
-        },
+        // Chrome defaults the picker to "Window", whose GPU video layer is not
+        // captured (viewers see blank frames). Ask for a browser tab with an
+        // `ideal` constraint so a browser that does not know the hint falls
+        // back to any surface instead of throwing. Firefox gets a plain `true`.
+        video: isFirefox ? true : { displaySurface: { ideal: "browser" } },
+        // Firefox's tab-capture audio path ignores processing hints and can
+        // drop the track when they are present, so request plain audio there.
+        audio: isFirefox
+          ? true
+          : {
+              echoCancellation: true,
+              noiseSuppression: true,
+              sampleRate: 48000,
+            },
       })
       localStreamRef.current = stream
       setHostState((prev) => ({ ...prev, isSharing: true, localStream: stream, error: null }))
@@ -342,9 +485,14 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         }
       }
     } catch (err: any) {
+      const raw = err?.message ?? "Failed to start screen sharing"
+      // On Firefox the generic error hides the real cause (tab capture renders
+      // blank / audio track dropped). Surface an actionable message.
       setHostState((prev) => ({
         ...prev,
-        error: err?.message ?? "Failed to start screen sharing",
+        error: isFirefox
+          ? `Firefox screen capture failed: ${raw}. Use Chrome for reliable sharing, or pick a Tab (not Window/Screen).`
+          : raw,
       }))
     }
   }, [stopShare])
@@ -391,26 +539,18 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   }, [])
 
   const toggleHostMic = React.useCallback(() => {
-    if (hostMicState.isMuted) {
-      const stream = hostMicRef.current
-      if (stream) {
-        const track = stream.getAudioTracks()[0]
-        if (track) {
-          track.enabled = true
-          setHostMicState((prev) => ({ ...prev, isMuted: false }))
-        }
-      }
-    } else {
-      const stream = hostMicRef.current
-      if (stream) {
-        const track = stream.getAudioTracks()[0]
-        if (track) {
-          track.enabled = false
-          setHostMicState((prev) => ({ ...prev, isMuted: true }))
-        }
-      }
+    // First press turns the microphone on; later presses mute/unmute it.
+    const track = hostMicRef.current?.getAudioTracks()[0]
+    if (!track) {
+      void startHostMic()
+      return
     }
-  }, [hostMicState.isMuted])
+    // Derive the next state from the live track, not from stored React state:
+    // after a re-negotiation or ICE restart the `isMuted` flag can be stale,
+    // which left the button stuck or inverted.
+    track.enabled = !track.enabled
+    setHostMicState((prev) => ({ ...prev, isMuted: !track.enabled }))
+  }, [startHostMic])
 
   // ------------------------------------------------------------------
   // Host: create peer connection for a new guest
@@ -447,26 +587,78 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         }
       }
 
-      pc.onconnectionstatechange = () => {
-        setHostState((prev) => ({
-          ...prev,
-          connectionState: pc.connectionState,
-        }))
-        if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-          pc.close()
-          peerConnectionsRef.current.delete(guestId)
-          setHostState((prev) => ({
-            ...prev,
-            peerCount: peerConnectionsRef.current.size,
-          }))
-        }
+      // Adding a late track (host mic, guest mic) needs a fresh offer; the
+      // initial one is sent explicitly below, so only renegotiate once the
+      // connection already has a local description.
+      pc.onnegotiationneeded = () => {
+        logPeer(`host:${guestId}:negotiationneeded`, pc)
+        if (!pc.localDescription) return
+        hostRenegotiate(pc, guestId, userId, false)
       }
 
-      // Receive guest's mic/audio tracks
-      pc.ontrack = (event) => {
-        if (event.track.kind === "audio") {
-          console.log(`[host] received audio track from guest ${guestId}:`, event.track.kind)
+      pc.onsignalingstatechange = () => logPeer(`host:${guestId}:signaling`, pc)
+      pc.oniceconnectionstatechange = () => logPeer(`host:${guestId}:ice`, pc)
+
+      pc.onconnectionstatechange = () => {
+        refreshHostConnectionState()
+        logPeer(`host:${guestId}:conn`, pc)
+
+        if (pc.connectionState === "connected") {
+          reconnectAttemptsRef.current.delete(guestId)
+          clearGrace(pc)
+          return
         }
+
+        // "disconnected" is routinely transient (network switch, tab
+        // throttling). Give it a grace period; if it has not recovered by then,
+        // attempt an ICE restart on the existing connection instead of tearing
+        // it down — a brief blip must not kill a healthy share.
+        if (pc.connectionState === "disconnected") {
+          if (!graceTimersRef.current.has(pc)) {
+            const timer = setTimeout(() => {
+              graceTimersRef.current.delete(pc)
+              if (
+                pc.connectionState === "disconnected" &&
+                peerConnectionsRef.current.get(guestId) === pc
+              ) {
+                console.warn(`[webrtc:host:${guestId}] grace expired — attempting ICE restart`)
+                try {
+                  pc.restartIce()
+                } catch (err) {
+                  console.error("restartIce failed:", err)
+                }
+                hostRenegotiate(pc, guestId, userId, true)
+              }
+            }, 5000)
+            graceTimersRef.current.set(pc, timer)
+          }
+          return
+        }
+
+        if (pc.connectionState !== "failed") return
+
+        clearGrace(pc)
+        pc.close()
+        peerConnectionsRef.current.delete(guestId)
+        refreshHostConnectionState()
+        setHostState((prev) => ({
+          ...prev,
+          peerCount: peerConnectionsRef.current.size,
+        }))
+        const attempts = reconnectAttemptsRef.current.get(guestId) ?? 0
+        if (attempts >= 3 || !localStreamRef.current) return
+        reconnectAttemptsRef.current.set(guestId, attempts + 1)
+        recreatePeerRef.current?.(guestId, userId)
+      }
+
+      // Receive guest's mic/audio tracks and play them for the host
+      pc.ontrack = (event) => {
+        if (event.track.kind !== "audio") return
+        const el = guestAudioElementsRef.current.get(guestId) ?? new Audio()
+        el.srcObject = event.streams[0] ?? new MediaStream([event.track])
+        el.autoplay = true
+        guestAudioElementsRef.current.set(guestId, el)
+        el.play().catch(() => {})
       }
 
       peerConnectionsRef.current.set(guestId, pc)
@@ -490,11 +682,16 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           console.error("Failed to create offer:", err)
         })
     },
-    [sendSignal]
+    [hostRenegotiate, logPeer, clearGrace, refreshHostConnectionState, sendSignal]
   )
 
   const addPeer = React.useCallback((guestId: string, userId: string) => {
     createPeerForGuest(guestId, userId)
+  }, [createPeerForGuest])
+
+  // Lets the connection-state handler re-offer without depending on itself.
+  React.useEffect(() => {
+    recreatePeerRef.current = createPeerForGuest
   }, [createPeerForGuest])
 
   // ------------------------------------------------------------------
@@ -503,16 +700,48 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   const handleHostSignal = React.useCallback(
     (signal: WebRTCSignal) => {
       switch (signal.type) {
+        case "webrtc.offer": {
+          // A guest re-offers when it adds a microphone; answer on the
+          // existing connection so the share keeps running.
+          const offer = signal as WebRTCOffer
+          const pc = peerConnectionsRef.current.get(offer.from)
+          if (!pc) break
+          enqueueSignaling(pc, async () => {
+            if (pc.signalingState === "have-local-offer") {
+              // Both sides renegotiated at once: roll our offer back so the
+              // guest's renegotiation can still be answered.
+              await pc.setLocalDescription({ type: "rollback" })
+            }
+            if (pc.signalingState !== "stable" && pc.signalingState !== "have-remote-offer") return
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
+            flushIceCandidates(pc)
+            const answer = await pc.createAnswer()
+            if (pc.signalingState !== "have-remote-offer") return
+            await pc.setLocalDescription(answer)
+            const localDesc = pc.localDescription
+            if (localDesc) {
+              sendSignal({
+                type: "webrtc.answer",
+                roomId: "",
+                from: "",
+                to: offer.from,
+                sdp: localDesc.sdp,
+              })
+            }
+          })
+          break
+        }
         case "webrtc.answer": {
           const answer = signal as WebRTCAnswer
           const pc = peerConnectionsRef.current.get(answer.from)
-          if (pc) {
-            pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp }))
-              .then(() => flushIceCandidates(pc))
-              .catch((err) => {
-                console.error("Failed to set remote answer:", err)
-              })
-          }
+          if (!pc) break
+          enqueueSignaling(pc, async () => {
+            // A duplicate or stale answer must be ignored: applying it to a
+            // settled connection throws InvalidStateError.
+            if (pc.signalingState !== "have-local-offer") return
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp }))
+            flushIceCandidates(pc)
+          })
           break
         }
         case "webrtc.ice-candidate": {
@@ -525,7 +754,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         }
       }
     },
-    [addIceCandidateWhenReady, flushIceCandidates]
+    [addIceCandidateWhenReady, enqueueSignaling, flushIceCandidates, sendSignal]
   )
 
   // ------------------------------------------------------------------
@@ -553,6 +782,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       isSharing: false,
       sharerId: null,
       error: null,
+      connectionState: "",
     })
   }, [guestState.remoteStream])
 
@@ -612,21 +842,71 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
             }
           }
 
+          pc.onsignalingstatechange = () => logPeer("guest:signaling", pc)
+          pc.oniceconnectionstatechange = () => logPeer("guest:ice", pc)
+
           pc.onconnectionstatechange = () => {
-            if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+            logPeer("guest:conn", pc)
+            // Surface the live state so the guest's connection indicator
+            // reflects reality instead of staying blank.
+            setGuestState((prev) =>
+              prev.connectionState === pc.connectionState
+                ? prev
+                : { ...prev, connectionState: pc.connectionState }
+            )
+
+            // A recovered connection clears any pending grace timer.
+            if (pc.connectionState === "connected") {
+              clearGrace(pc)
+              return
+            }
+
+            // "disconnected" is transient: wait out a grace period, then try an
+            // ICE restart (re-offer) before giving up. Only a hard "failed"
+            // ends the share and blanks the player.
+            if (pc.connectionState === "disconnected") {
+              if (!graceTimersRef.current.has(pc)) {
+                const timer = setTimeout(() => {
+                  graceTimersRef.current.delete(pc)
+                  if (
+                    pc.connectionState === "disconnected" &&
+                    guestPeerConnectionRef.current === pc
+                  ) {
+                    console.warn("[webrtc:guest] grace expired — attempting ICE restart")
+                    try {
+                      pc.restartIce()
+                    } catch (err) {
+                      console.error("restartIce failed:", err)
+                    }
+                    guestRenegotiate(pc, offer.from, true)
+                  }
+                }, 5000)
+                graceTimersRef.current.set(pc, timer)
+              }
+              return
+            }
+
+            if (pc.connectionState === "failed") {
+              clearGrace(pc)
               stopReceiving()
             }
           }
 
           guestPeerConnectionRef.current = pc
 
-          pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
-            .then(() => {
+          enqueueSignaling(pc, async () => {
+            try {
+              // A newer offer replaced this connection while it was queued.
+              if (pc.signalingState === "closed") return
+              if (pc.signalingState === "have-local-offer") {
+                await pc.setLocalDescription({ type: "rollback" })
+              }
+              if (pc.signalingState !== "stable" && pc.signalingState !== "have-remote-offer") return
+              await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
               flushIceCandidates(pc)
-              return pc.createAnswer()
-            })
-            .then((answer) => pc.setLocalDescription(answer))
-            .then(() => {
+              const answer = await pc.createAnswer()
+              if (pc.signalingState !== "have-remote-offer") return
+              await pc.setLocalDescription(answer)
               const localDesc = pc.localDescription
               if (localDesc) {
                 sendSignal({
@@ -637,21 +917,37 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
                   sdp: localDesc.sdp,
                 })
               }
-            })
-            .catch((err) => {
-              console.error("Failed to handle offer:", err)
-              setGuestState((prev) => ({ ...prev, error: err?.message ?? "Failed to join screen share" }))
-            })
+            } catch (err) {
+              setGuestState((prev) => ({
+                ...prev,
+                error: err instanceof Error ? err.message : "Failed to join screen share",
+              }))
+            }
+          })
           break
         }
         case "webrtc.ice-candidate": {
           const candidate = signal as WebRTCIceCandidate
           const pc = guestPeerConnectionRef.current
           if (pc && candidate.candidate) {
-            pc.addIceCandidate(new RTCIceCandidate(candidate.candidate)).catch((err) => {
-              console.error("Failed to add ICE candidate:", err)
-            })
+            // Queue candidates that beat the host's offer: adding one before
+            // the remote description throws and the connection stalls.
+            addIceCandidateWhenReady(pc, candidate.candidate)
           }
+          break
+        }
+        case "webrtc.answer": {
+          // The host's reply to a guest renegotiation (e.g. a late mic).
+          const answer = signal as WebRTCAnswer
+          const pc = guestPeerConnectionRef.current
+          if (!pc) break
+          enqueueSignaling(pc, async () => {
+            // Ignore a duplicate or stale answer to a renegotiation that has
+            // already settled.
+            if (pc.signalingState !== "have-local-offer") return
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp }))
+            flushIceCandidates(pc)
+          })
           break
         }
         case "webrtc.screen-share.started": {
@@ -668,7 +964,16 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         }
       }
     },
-    [addIceCandidateWhenReady, flushIceCandidates, sendSignal, stopReceiving]
+    [
+      addIceCandidateWhenReady,
+      enqueueSignaling,
+      flushIceCandidates,
+      sendSignal,
+      stopReceiving,
+      guestRenegotiate,
+      logPeer,
+      clearGrace,
+    ]
   )
 
   // ------------------------------------------------------------------
@@ -684,23 +989,23 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       if (micTrack) {
         const pc = guestPeerConnectionRef.current
         if (pc) {
-          pc.addTrack(micTrack, stream)
-          // Re-create offer to renegotiate with new track
-          pc.createOffer()
-            .then((offer) => pc.setLocalDescription(offer))
-            .then(() => {
-              const localDesc = pc.localDescription
-              if (localDesc) {
-                sendSignal({
-                  type: "webrtc.offer",
-                  roomId: "",
-                  from: "",
-                  to: "", // will be filled by sender
-                  sdp: localDesc.sdp,
-                })
-              }
-            })
-            .catch((err) => console.error("Failed to renegotiate with guest mic:", err))
+          enqueueSignaling(pc, async () => {
+            pc.addTrack(micTrack, stream)
+            // Only one negotiation may be in flight; the host answers it.
+            if (pc.signalingState !== "stable") return
+            const offer = await pc.createOffer()
+            await pc.setLocalDescription(offer)
+            const localDesc = pc.localDescription
+            if (localDesc) {
+              sendSignal({
+                type: "webrtc.offer",
+                roomId: "",
+                from: "",
+                to: guestState.sharerId ?? "",
+                sdp: localDesc.sdp,
+              })
+            }
+          })
         }
       }
     } catch (err: any) {
@@ -709,7 +1014,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         error: err?.message ?? "Failed to access microphone",
       }))
     }
-  }, [sendSignal])
+  }, [enqueueSignaling, sendSignal, guestState.sharerId])
 
   const stopGuestMic = React.useCallback(() => {
     const stream = guestMicRef.current
@@ -721,26 +1026,17 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   }, [])
 
   const toggleGuestMic = React.useCallback(() => {
-    if (guestMicState.isMuted) {
-      const stream = guestMicRef.current
-      if (stream) {
-        const track = stream.getAudioTracks()[0]
-        if (track) {
-          track.enabled = true
-          setGuestMicState((prev) => ({ ...prev, isMuted: false }))
-        }
-      }
-    } else {
-      const stream = guestMicRef.current
-      if (stream) {
-        const track = stream.getAudioTracks()[0]
-        if (track) {
-          track.enabled = false
-          setGuestMicState((prev) => ({ ...prev, isMuted: true }))
-        }
-      }
+    // First press turns the microphone on; later presses mute/unmute it.
+    const track = guestMicRef.current?.getAudioTracks()[0]
+    if (!track) {
+      void startGuestMic()
+      return
     }
-  }, [guestMicState.isMuted])
+    // Derive the next state from the live track, not stored React state, so a
+    // re-negotiation cannot leave this button inverted.
+    track.enabled = !track.enabled
+    setGuestMicState((prev) => ({ ...prev, isMuted: !track.enabled }))
+  }, [startGuestMic])
 
   // ------------------------------------------------------------------
   // Active speaker detection
@@ -828,6 +1124,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     isSharingFromHost: guestState.isSharing,
     sharerId: guestState.sharerId,
     receiveError: guestState.error,
+    guestConnectionState: guestState.connectionState,
     stopReceiving,
     handleGuestSignal,
     // Guest mic
