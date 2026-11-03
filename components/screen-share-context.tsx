@@ -736,30 +736,38 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   // ------------------------------------------------------------------
   // Active speaker detection
   // ------------------------------------------------------------------
-  React.useEffect(() => {
-    const stream = remoteStreamRef.current
-    if (!stream) {
-      setActiveSpeakerId(null)
-      setAudioLevels(new Map())
-      return
-    }
+  const remoteStream = guestState.remoteStream
+  const sharerId = guestState.sharerId
 
-    const track = stream.getAudioTracks()[0]
+  React.useEffect(() => {
+    const track = remoteStream?.getAudioTracks()[0]
     if (!track) {
       setActiveSpeakerId(null)
-      setAudioLevels(new Map())
+      setAudioLevels((prev) => (prev.size === 0 ? prev : new Map()))
       return
     }
 
+    const key = sharerId || "host"
     const monitor = createAudioLevelMonitor(track)
-    audioMonitorRef.current.set(guestState.sharerId || "host", monitor)
+    audioMonitorRef.current.set(key, monitor)
 
+    // Compare before storing so an idle loop does not re-render every frame.
+    const levelsMatch = (a: Map<string, number>, b: Map<string, number>) => {
+      if (a.size !== b.size) return false
+      for (const [id, level] of b) {
+        const previous = a.get(id)
+        if (previous === undefined || Math.abs(previous - level) > 0.01) return false
+      }
+      return true
+    }
+
+    let frame = 0
     const updateLevels = () => {
-      const levels = new Map(audioLevels)
+      const levels = new Map<string, number>()
       audioMonitorRef.current.forEach((mon, uid) => {
         levels.set(uid, mon.getLevel())
       })
-      setAudioLevels(levels)
+      setAudioLevels((prev) => (levelsMatch(prev, levels) ? prev : levels))
 
       let maxLevel = 0
       let maxUserId: string | null = null
@@ -769,18 +777,19 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           maxUserId = uid
         }
       })
-      setActiveSpeakerId(maxUserId)
+      setActiveSpeakerId((prev) => (prev === maxUserId ? prev : maxUserId))
 
-      requestAnimationFrame(updateLevels)
+      frame = requestAnimationFrame(updateLevels)
     }
 
-    updateLevels()
+    frame = requestAnimationFrame(updateLevels)
 
     return () => {
+      cancelAnimationFrame(frame)
       monitor.destroy()
-      audioMonitorRef.current.delete(guestState.sharerId || "host")
+      audioMonitorRef.current.delete(key)
     }
-  }, [remoteStreamRef.current, guestState.sharerId, audioLevels])
+  }, [remoteStream, sharerId])
 
   // Refresh audio devices on mount
   React.useEffect(() => {
