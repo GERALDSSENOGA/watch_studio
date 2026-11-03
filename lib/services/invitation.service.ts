@@ -107,7 +107,8 @@ export async function acceptInvitation(input: { token: string; userId: string })
   const room = matched.room
   const alreadyMember = room.members.some((m) => m.userId === input.userId)
   if (alreadyMember) {
-    throw new InvitationError("ALREADY_MEMBER", "You are already a member of this room", 409)
+    // User is already a member — treat as success (goal achieved)
+    return { invitation: matched as any, membership: null }
   }
   if (room.members.length >= room.maxMembers) {
     throw new InvitationError("ROOM_FULL", "Room is at capacity", 403)
