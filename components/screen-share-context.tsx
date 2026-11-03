@@ -203,6 +203,27 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     }
   }, [])
 
+  // ------------------------------------------------------------------
+  // SDP operations are async, and signals can arrive twice or out of order.
+  // Running them concurrently (or applying a duplicate answer) throws
+  // InvalidStateError — "Cannot set remote answer in state stable" — and
+  // breaks the share, so every negotiation step is serialized per connection.
+  // ------------------------------------------------------------------
+  const signalingQueuesRef = React.useRef<WeakMap<RTCPeerConnection, Promise<void>>>(
+    new WeakMap()
+  )
+
+  const enqueueSignaling = React.useCallback(
+    (pc: RTCPeerConnection, task: () => Promise<void>) => {
+      const previous = signalingQueuesRef.current.get(pc) ?? Promise.resolve()
+      const next = previous
+        .then(task, task)
+        .catch((err) => console.error("Failed to apply signalling step:", err))
+      signalingQueuesRef.current.set(pc, next)
+    },
+    []
+  )
+
   const iceServers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
@@ -466,22 +487,21 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       // initial one is sent explicitly below, so only renegotiate once the
       // connection already has a local description.
       pc.onnegotiationneeded = () => {
-        if (!pc.localDescription) return
-        pc.createOffer()
-          .then((offer) => pc.setLocalDescription(offer))
-          .then(() => {
-            const localDesc = pc.localDescription
-            if (localDesc) {
-              sendSignal({
-                type: "webrtc.offer",
-                roomId: "",
-                from: userId,
-                to: guestId,
-                sdp: localDesc.sdp,
-              })
-            }
-          })
-          .catch((err) => console.error("Failed to renegotiate:", err))
+        enqueueSignaling(pc, async () => {
+          if (!pc.localDescription || pc.signalingState !== "stable") return
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+          const localDesc = pc.localDescription
+          if (localDesc) {
+            sendSignal({
+              type: "webrtc.offer",
+              roomId: "",
+              from: userId,
+              to: guestId,
+              sdp: localDesc.sdp,
+            })
+          }
+        })
       }
 
       pc.onconnectionstatechange = () => {
@@ -541,7 +561,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           console.error("Failed to create offer:", err)
         })
     },
-    [sendSignal]
+    [enqueueSignaling, sendSignal]
   )
 
   const addPeer = React.useCallback((guestId: string, userId: string) => {
@@ -565,35 +585,42 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           const offer = signal as WebRTCOffer
           const pc = peerConnectionsRef.current.get(offer.from)
           if (!pc) break
-          pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
-            .then(() => flushIceCandidates(pc))
-            .then(() => pc.createAnswer())
-            .then((answer) => pc.setLocalDescription(answer))
-            .then(() => {
-              const localDesc = pc.localDescription
-              if (localDesc) {
-                sendSignal({
-                  type: "webrtc.answer",
-                  roomId: "",
-                  from: "",
-                  to: offer.from,
-                  sdp: localDesc.sdp,
-                })
-              }
-            })
-            .catch((err) => console.error("Failed to answer guest offer:", err))
+          enqueueSignaling(pc, async () => {
+            if (pc.signalingState === "have-local-offer") {
+              // Both sides renegotiated at once: roll our offer back so the
+              // guest's renegotiation can still be answered.
+              await pc.setLocalDescription({ type: "rollback" })
+            }
+            if (pc.signalingState !== "stable" && pc.signalingState !== "have-remote-offer") return
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
+            flushIceCandidates(pc)
+            const answer = await pc.createAnswer()
+            if (pc.signalingState !== "have-remote-offer") return
+            await pc.setLocalDescription(answer)
+            const localDesc = pc.localDescription
+            if (localDesc) {
+              sendSignal({
+                type: "webrtc.answer",
+                roomId: "",
+                from: "",
+                to: offer.from,
+                sdp: localDesc.sdp,
+              })
+            }
+          })
           break
         }
         case "webrtc.answer": {
           const answer = signal as WebRTCAnswer
           const pc = peerConnectionsRef.current.get(answer.from)
-          if (pc) {
-            pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp }))
-              .then(() => flushIceCandidates(pc))
-              .catch((err) => {
-                console.error("Failed to set remote answer:", err)
-              })
-          }
+          if (!pc) break
+          enqueueSignaling(pc, async () => {
+            // A duplicate or stale answer must be ignored: applying it to a
+            // settled connection throws InvalidStateError.
+            if (pc.signalingState !== "have-local-offer") return
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp }))
+            flushIceCandidates(pc)
+          })
           break
         }
         case "webrtc.ice-candidate": {
@@ -606,7 +633,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         }
       }
     },
-    [addIceCandidateWhenReady, flushIceCandidates, sendSignal]
+    [addIceCandidateWhenReady, enqueueSignaling, flushIceCandidates, sendSignal]
   )
 
   // ------------------------------------------------------------------
@@ -703,13 +730,19 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
 
           guestPeerConnectionRef.current = pc
 
-          pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
-            .then(() => {
+          enqueueSignaling(pc, async () => {
+            try {
+              // A newer offer replaced this connection while it was queued.
+              if (pc.signalingState === "closed") return
+              if (pc.signalingState === "have-local-offer") {
+                await pc.setLocalDescription({ type: "rollback" })
+              }
+              if (pc.signalingState !== "stable" && pc.signalingState !== "have-remote-offer") return
+              await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
               flushIceCandidates(pc)
-              return pc.createAnswer()
-            })
-            .then((answer) => pc.setLocalDescription(answer))
-            .then(() => {
+              const answer = await pc.createAnswer()
+              if (pc.signalingState !== "have-remote-offer") return
+              await pc.setLocalDescription(answer)
               const localDesc = pc.localDescription
               if (localDesc) {
                 sendSignal({
@@ -720,11 +753,13 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
                   sdp: localDesc.sdp,
                 })
               }
-            })
-            .catch((err) => {
-              console.error("Failed to handle offer:", err)
-              setGuestState((prev) => ({ ...prev, error: err?.message ?? "Failed to join screen share" }))
-            })
+            } catch (err) {
+              setGuestState((prev) => ({
+                ...prev,
+                error: err instanceof Error ? err.message : "Failed to join screen share",
+              }))
+            }
+          })
           break
         }
         case "webrtc.ice-candidate": {
@@ -741,11 +776,14 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           // The host's reply to a guest renegotiation (e.g. a late mic).
           const answer = signal as WebRTCAnswer
           const pc = guestPeerConnectionRef.current
-          if (pc) {
-            pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp }))
-              .then(() => flushIceCandidates(pc))
-              .catch((err) => console.error("Failed to apply host answer:", err))
-          }
+          if (!pc) break
+          enqueueSignaling(pc, async () => {
+            // Ignore a duplicate or stale answer to a renegotiation that has
+            // already settled.
+            if (pc.signalingState !== "have-local-offer") return
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp }))
+            flushIceCandidates(pc)
+          })
           break
         }
         case "webrtc.screen-share.started": {
@@ -762,7 +800,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         }
       }
     },
-    [addIceCandidateWhenReady, flushIceCandidates, sendSignal, stopReceiving]
+    [addIceCandidateWhenReady, enqueueSignaling, flushIceCandidates, sendSignal, stopReceiving]
   )
 
   // ------------------------------------------------------------------
@@ -778,23 +816,23 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       if (micTrack) {
         const pc = guestPeerConnectionRef.current
         if (pc) {
-          pc.addTrack(micTrack, stream)
-          // Re-create offer to renegotiate with new track
-          pc.createOffer()
-            .then((offer) => pc.setLocalDescription(offer))
-            .then(() => {
-              const localDesc = pc.localDescription
-              if (localDesc) {
-                sendSignal({
-                  type: "webrtc.offer",
-                  roomId: "",
-                  from: "",
-                  to: guestState.sharerId ?? "",
-                  sdp: localDesc.sdp,
-                })
-              }
-            })
-            .catch((err) => console.error("Failed to renegotiate with guest mic:", err))
+          enqueueSignaling(pc, async () => {
+            pc.addTrack(micTrack, stream)
+            // Only one negotiation may be in flight; the host answers it.
+            if (pc.signalingState !== "stable") return
+            const offer = await pc.createOffer()
+            await pc.setLocalDescription(offer)
+            const localDesc = pc.localDescription
+            if (localDesc) {
+              sendSignal({
+                type: "webrtc.offer",
+                roomId: "",
+                from: "",
+                to: guestState.sharerId ?? "",
+                sdp: localDesc.sdp,
+              })
+            }
+          })
         }
       }
     } catch (err: any) {
@@ -803,7 +841,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         error: err?.message ?? "Failed to access microphone",
       }))
     }
-  }, [sendSignal, guestState.sharerId])
+  }, [enqueueSignaling, sendSignal, guestState.sharerId])
 
   const stopGuestMic = React.useCallback(() => {
     const stream = guestMicRef.current
