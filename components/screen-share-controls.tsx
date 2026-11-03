@@ -128,6 +128,9 @@ export function ScreenShareControls({
   const audioTrack = stream?.getTracks().find((t) => t.kind === "audio") ?? null
   const isAudioEnabled = audioTrack?.enabled ?? true
   const isAudioConnected = connectionState === "connected" || connectionState === ""
+  // Show the microphone as "off" until one is actually captured, so the button
+  // does not look live before the first press (hasMic=false, isMicMuted=false).
+  const micOff = !hasMic || isMicMuted
 
   /** One shape for every round control, plus a filled state when it is muted. */
   const controlClass = (muted: boolean) =>
@@ -213,11 +216,11 @@ export function ScreenShareControls({
           variant="ghost"
           size="sm"
           onClick={onToggleMic}
-          className={controlClass(isMicMuted)}
+          className={controlClass(micOff)}
           aria-label={!hasMic ? "Start microphone" : isMicMuted ? "Unmute microphone" : "Mute microphone"}
           title={!hasMic ? "Start microphone" : isMicMuted ? "Unmute microphone" : "Mute microphone"}
         >
-          {isMicMuted ? (
+          {micOff ? (
             <MicOffIcon className={icon} />
           ) : (
             <MicIcon className={icon} />

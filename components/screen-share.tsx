@@ -87,6 +87,10 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
     // the controls stay reachable while watching full screen.
     const guestStageRef = React.useRef<HTMLDivElement | null>(null)
     const hostStageRef = React.useRef<HTMLDivElement | null>(null)
+    // Set when the host clicks "Share Screen"; the effect below enters
+    // fullscreen once the stage mounts. Fullscreen needs transient activation,
+    // so this is best-effort — the pill's fullscreen button always works.
+    const autoFullscreenRef = React.useRef(false)
 
     const [isHostMuted, setIsHostMuted] = React.useState(false)
     const [isGuestMuted, setIsGuestMuted] = React.useState(false)
@@ -191,6 +195,17 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
       }
     }, [isHost])
 
+    // Host: go fullscreen automatically once the share is live, so the shared
+    // stage fills the screen without an extra click.
+    React.useEffect(() => {
+      if (!isHost || !autoFullscreenRef.current) return
+      if (!isSharing || !hostStageRef.current) return
+      autoFullscreenRef.current = false
+      if (!document.fullscreenElement) {
+        hostStageRef.current.requestFullscreen().catch(() => {})
+      }
+    }, [isHost, isSharing, localStream])
+
     React.useImperativeHandle(ref, () => ({
       addPeer: (guestId: string, userId: string) => addPeer(guestId, userId),
     }))
@@ -247,6 +262,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                 size="sm"
                 variant="ghost"
                 onClick={() => {
+                  autoFullscreenRef.current = true
                   stopShare()
                   void startShare()
                 }}
@@ -336,7 +352,10 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={startShare}
+                  onClick={() => {
+                    autoFullscreenRef.current = true
+                    void startShare()
+                  }}
                   disabled={isSharing}
                   className="w-full"
                 >
