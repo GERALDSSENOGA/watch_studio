@@ -63,6 +63,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
       isSharingFromHost,
       sharerId,
       receiveError,
+      guestConnectionState,
       stopReceiving,
       handleGuestSignal,
       connectionState: hostConnectionState,
@@ -94,8 +95,6 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
     const [isHostFullscreen, setIsHostFullscreen] = React.useState(false)
     const [isGuestFullscreen, setIsGuestFullscreen] = React.useState(false)
     const [guestNeedsPlay, setGuestNeedsPlay] = React.useState(false)
-
-    const [guestConnectionState, setGuestConnectionState] = React.useState<string>("")
 
     // Sync video elements to streams
     React.useEffect(() => {
