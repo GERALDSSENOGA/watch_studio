@@ -564,6 +564,15 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       switch (signal.type) {
         case "webrtc.offer": {
           const offer = signal as WebRTCOffer
+          // An offer also reaches guests who joined after the share began (or
+          // whose "started" broadcast was missed), so mark the share active
+          // from the offer itself — otherwise their player never mounts and
+          // they sit on "Waiting for the host to start screen sharing".
+          setGuestState((prev) => ({
+            ...prev,
+            isSharing: true,
+            sharerId: prev.sharerId ?? offer.from ?? null,
+          }))
           // A new offer means the host re-started sharing: drop the previous
           // connection and its stream so the fresh one replaces it.
           guestPeerConnectionRef.current?.close()
