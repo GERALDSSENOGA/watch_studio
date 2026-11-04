@@ -169,7 +169,10 @@ export function ScreenShareControls({
       )}
 
       {/* Floating control pill — always on top of the stage, Zoom-style */}
-      <div className="relative flex items-center gap-0.5 rounded-full border border-white/10 bg-neutral-950/85 p-1.5 shadow-[0_12px_40px_-10px_rgba(0,0,0,0.95)] backdrop-blur-xl">
+      {/* pointer-events-auto: the overlay above the video is click-through, so
+          without this the <video> underneath swallows every click and none of
+          these buttons respond. */}
+      <div className="pointer-events-auto relative flex items-center gap-0.5 rounded-full border border-white/10 bg-neutral-950/85 p-1.5 shadow-[0_12px_40px_-10px_rgba(0,0,0,0.95)] backdrop-blur-xl">
         {/* Mute/Unmute audio */}
         <Button
           type="button"
