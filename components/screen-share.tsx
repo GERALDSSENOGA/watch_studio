@@ -28,6 +28,49 @@ export interface ScreenShareHandle {
  * guide Firefox users toward native YouTube sync instead. */
 const isFirefox = typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent)
 
+/** Current fullscreen element, including Safari's prefixed API on tablets. */
+type WebkitDocument = Document & {
+  webkitFullscreenElement?: Element | null
+  webkitExitFullscreen?: () => Promise<void> | void
+}
+type WebkitElement = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void
+}
+
+function fullscreenElement(): Element | null {
+  const doc = document as WebkitDocument
+  return doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null
+}
+
+/** Enter fullscreen on a stage, falling back to the prefixed call (Safari). */
+function requestStageFullscreen(el: HTMLElement | null) {
+  if (!el) return
+  try {
+    const request =
+      el.requestFullscreen?.bind(el) ??
+      (el as WebkitElement).webkitRequestFullscreen?.bind(el)
+    const result = request?.()
+    if (result && typeof (result as Promise<void>).catch === "function") {
+      ;(result as Promise<void>).catch(() => {})
+    }
+  } catch {
+    /* fullscreen is best-effort */
+  }
+}
+
+function exitStageFullscreen() {
+  try {
+    const doc = document as WebkitDocument
+    const exit = doc.exitFullscreen?.bind(doc) ?? doc.webkitExitFullscreen?.bind(doc)
+    const result = exit?.()
+    if (result && typeof (result as Promise<void>).catch === "function") {
+      ;(result as Promise<void>).catch(() => {})
+    }
+  } catch {
+    /* fullscreen is best-effort */
+  }
+}
+
 /** Inline SVG icons to avoid adding dependencies. */
 const VideoIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -150,7 +193,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
     // Handle fullscreen change events
     React.useEffect(() => {
       const handleFullscreenChange = () => {
-        const el = document.fullscreenElement
+        const el = fullscreenElement()
         if (isHost) {
           setIsHostFullscreen(el === hostStageRef.current)
         } else {
@@ -158,8 +201,10 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
         }
       }
       document.addEventListener("fullscreenchange", handleFullscreenChange)
+      document.addEventListener("webkitfullscreenchange", handleFullscreenChange)
       return () => {
         document.removeEventListener("fullscreenchange", handleFullscreenChange)
+        document.removeEventListener("webkitfullscreenchange", handleFullscreenChange)
       }
     }, [isHost])
 
@@ -188,10 +233,10 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
     const toggleFullscreen = React.useCallback(() => {
       const el = isHost ? hostStageRef.current : guestStageRef.current
       if (!el) return
-      if (!document.fullscreenElement) {
-        el.requestFullscreen().catch(() => {})
+      if (!fullscreenElement()) {
+        requestStageFullscreen(el)
       } else {
-        document.exitFullscreen().catch(() => {})
+        exitStageFullscreen()
       }
     }, [isHost])
 
@@ -201,8 +246,8 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
       if (!isHost || !autoFullscreenRef.current) return
       if (!isSharing || !hostStageRef.current) return
       autoFullscreenRef.current = false
-      if (!document.fullscreenElement) {
-        hostStageRef.current.requestFullscreen().catch(() => {})
+      if (!fullscreenElement()) {
+        requestStageFullscreen(hostStageRef.current)
       }
     }, [isHost, isSharing, localStream])
 

@@ -132,13 +132,13 @@ export function ScreenShareControls({
   // does not look live before the first press (hasMic=false, isMicMuted=false).
   const micOff = !hasMic || isMicMuted
 
-  /** One shape for every round control, plus a filled state when it is muted. */
-  const controlClass = (muted: boolean) =>
+  /** One shape for every round control; filled red while switched off, like Zoom. */
+  const controlClass = (off: boolean) =>
     classNames(
-      "h-10 w-10 shrink-0 rounded-full border-transparent bg-transparent p-0 transition-colors",
-      muted
-        ? "bg-amber-400/15 text-amber-300 hover:bg-amber-400/25 hover:text-amber-200"
-        : "text-white/90 hover:bg-white/15 hover:text-white"
+      "h-10 w-10 shrink-0 rounded-full border-transparent p-0 transition-colors",
+      off
+        ? "bg-red-600 text-white hover:bg-red-500"
+        : "bg-white/10 text-white hover:bg-white/20"
     )
 
   const icon = "h-[18px] w-[18px]"
@@ -164,8 +164,10 @@ export function ScreenShareControls({
         </div>
       )}
 
-      {/* Floating control pill — always on top of the stage, Zoom-style */}
-      <div className="relative flex items-center gap-0.5 rounded-full border border-white/10 bg-neutral-950/85 p-1.5 shadow-[0_12px_40px_-10px_rgba(0,0,0,0.95)] backdrop-blur-xl">
+      {/* Floating control pill — always on top of the stage, Zoom-style.
+          The wrapper ignores pointer events; the pill re-enables them so the
+          video underneath stays draggable and every button here is clickable. */}
+      <div className="pointer-events-auto relative flex items-center gap-0.5 rounded-full border border-white/10 bg-neutral-950/85 p-1.5 shadow-[0_12px_40px_-10px_rgba(0,0,0,0.95)] backdrop-blur-xl">
         {/* Mute/Unmute audio */}
         <Button
           type="button"
@@ -174,6 +176,7 @@ export function ScreenShareControls({
           onClick={onToggleMute}
           disabled={!stream || !hasAudio}
           className={controlClass(isMuted)}
+          aria-pressed={isMuted}
           aria-label={isMuted ? "Unmute audio" : "Mute audio"}
           title={
             !hasAudio
@@ -217,6 +220,7 @@ export function ScreenShareControls({
           size="sm"
           onClick={onToggleMic}
           className={controlClass(micOff)}
+          aria-pressed={micOff}
           aria-label={!hasMic ? "Start microphone" : isMicMuted ? "Unmute microphone" : "Mute microphone"}
           title={!hasMic ? "Start microphone" : isMicMuted ? "Unmute microphone" : "Mute microphone"}
         >
