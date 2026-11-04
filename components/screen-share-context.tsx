@@ -8,6 +8,7 @@ import {
   WebRTCIceCandidate,
 } from "@/lib/webrtc/types"
 import { mergeRemoteTrack } from "@/lib/webrtc/remote-stream"
+import { reusableGuestPeer } from "@/lib/webrtc/peer-reuse"
 import {
   getMicrophoneList,
   getSpeakerList,
@@ -787,6 +788,45 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   }, [guestState.remoteStream])
 
   // ------------------------------------------------------------------
+  // Guest: apply the host's offer on a connection and answer it
+  // ------------------------------------------------------------------
+  const answerOffer = React.useCallback(
+    (pc: RTCPeerConnection, sdp: string, hostId: string | null) => {
+      enqueueSignaling(pc, async () => {
+        try {
+          // A newer offer replaced this connection while it was queued.
+          if (pc.signalingState === "closed") return
+          if (pc.signalingState === "have-local-offer") {
+            await pc.setLocalDescription({ type: "rollback" })
+          }
+          if (pc.signalingState !== "stable" && pc.signalingState !== "have-remote-offer") return
+          await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp }))
+          flushIceCandidates(pc)
+          const answer = await pc.createAnswer()
+          if (pc.signalingState !== "have-remote-offer") return
+          await pc.setLocalDescription(answer)
+          const localDesc = pc.localDescription
+          if (localDesc) {
+            sendSignal({
+              type: "webrtc.answer",
+              roomId: "",
+              from: "",
+              to: hostId ?? "",
+              sdp: localDesc.sdp,
+            })
+          }
+        } catch (err) {
+          setGuestState((prev) => ({
+            ...prev,
+            error: err instanceof Error ? err.message : "Failed to join screen share",
+          }))
+        }
+      })
+    },
+    [enqueueSignaling, flushIceCandidates, sendSignal]
+  )
+
+  // ------------------------------------------------------------------
   // Guest: handle incoming signal from host
   // ------------------------------------------------------------------
   const handleGuestSignal = React.useCallback(
@@ -803,8 +843,22 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
             isSharing: true,
             sharerId: prev.sharerId ?? offer.from ?? null,
           }))
-          // A new offer means the host re-started sharing: drop the previous
-          // connection and its stream so the fresh one replaces it.
+          // A host renegotiation (late microphone, quality change, ICE
+          // restart) arrives as another offer on the connection that is
+          // already receiving, and must be answered there. A rebuilt
+          // connection answering an established one gives both sides the same
+          // DTLS role, which Chrome rejects with "Failed to set SSL role for
+          // the transport" — and every later negotiation fails the same way.
+          // Only a start of sharing (no connection yet, or a dead one) builds
+          // a fresh connection.
+          const live = reusableGuestPeer(guestPeerConnectionRef.current)
+          if (live) {
+            answerOffer(live, offer.sdp, offer.from ?? null)
+            break
+          }
+
+          // No usable connection: drop the old one and its stream so the
+          // fresh connection replaces it.
           guestPeerConnectionRef.current?.close()
           guestPeerConnectionRef.current = null
           remoteStreamRef.current = null
@@ -894,36 +948,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
 
           guestPeerConnectionRef.current = pc
 
-          enqueueSignaling(pc, async () => {
-            try {
-              // A newer offer replaced this connection while it was queued.
-              if (pc.signalingState === "closed") return
-              if (pc.signalingState === "have-local-offer") {
-                await pc.setLocalDescription({ type: "rollback" })
-              }
-              if (pc.signalingState !== "stable" && pc.signalingState !== "have-remote-offer") return
-              await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
-              flushIceCandidates(pc)
-              const answer = await pc.createAnswer()
-              if (pc.signalingState !== "have-remote-offer") return
-              await pc.setLocalDescription(answer)
-              const localDesc = pc.localDescription
-              if (localDesc) {
-                sendSignal({
-                  type: "webrtc.answer",
-                  roomId: "",
-                  from: "",
-                  to: offer.from,
-                  sdp: localDesc.sdp,
-                })
-              }
-            } catch (err) {
-              setGuestState((prev) => ({
-                ...prev,
-                error: err instanceof Error ? err.message : "Failed to join screen share",
-              }))
-            }
-          })
+          answerOffer(pc, offer.sdp, offer.from ?? null)
           break
         }
         case "webrtc.ice-candidate": {
@@ -973,6 +998,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       guestRenegotiate,
       logPeer,
       clearGrace,
+      answerOffer,
     ]
   )
 
