@@ -102,6 +102,9 @@ export interface ScreenShareControlsProps {
   onStop: () => void
   isFullscreen: boolean
   hasAudio: boolean
+  /** Hide the volume group where it cannot affect anything (host hears the
+   *  shared tab directly, its preview stays muted). Defaults to true. */
+  showVolume?: boolean
   connectionState: string
   // Microphone
   hasMic: boolean
@@ -119,6 +122,7 @@ export function ScreenShareControls({
   onStop,
   isFullscreen,
   hasAudio,
+  showVolume = true,
   connectionState,
   // Microphone
   hasMic,
@@ -190,8 +194,8 @@ export function ScreenShareControls({
           )}
         </Button>
 
-        {/* Volume slider (guests only - host mutes at source) */}
-        {hasAudio && (
+        {/* Volume slider — only where playback volume is ours to control */}
+        {hasAudio && showVolume && (
           <div className="mx-0.5 flex h-10 items-center gap-2.5 rounded-full bg-white/5 pl-3 pr-3.5 ring-1 ring-inset ring-white/10">
             <input
               type="range"
@@ -204,8 +208,13 @@ export function ScreenShareControls({
               aria-label="Shared audio volume"
               className="share-volume w-20 cursor-pointer"
             />
-            <span className="w-7 text-right text-[11px] font-medium tabular-nums text-white/45">
-              {Math.round(volume * 100)}%
+            <span
+              className={classNames(
+                "w-9 text-right text-[11px] font-medium tabular-nums",
+                isMuted ? "text-amber-300" : "text-white/45"
+              )}
+            >
+              {isMuted ? "Muted" : `${Math.round(volume * 100)}%`}
             </span>
           </div>
         )}

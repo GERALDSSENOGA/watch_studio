@@ -294,6 +294,7 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                   volume={hostVolume}
                   onToggleMute={toggleMute}
                   onVolumeChange={setHostVolume}
+                  showVolume={false}
                   onToggleFullscreen={toggleFullscreen}
                   onStop={stopShare}
                   isFullscreen={isHostFullscreen}
