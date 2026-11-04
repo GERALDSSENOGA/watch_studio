@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { reusableGuestPeer } from "../../lib/webrtc/peer-reuse"
+import { isLivePeer, reusableGuestPeer } from "../../lib/webrtc/peer-reuse"
 
 /**
  * Guest screen share: the host sends a new offer not only when a share starts
@@ -45,5 +45,27 @@ describe("reusableGuestPeer", () => {
 
   it("6. rebuilds when there is no connection yet (first offer of a share)", () => {
     expect(reusableGuestPeer(null)).toBeNull()
+  })
+})
+
+describe("isLivePeer", () => {
+  it("7. treats a connected host connection as live", () => {
+    expect(isLivePeer(peer({ connectionState: "connected" }))).toBe(true)
+  })
+
+  it("8. treats a still-negotiating connection as live", () => {
+    expect(isLivePeer(peer({ signalingState: "have-local-offer" }))).toBe(true)
+  })
+
+  it("9. treats a closed connection as dead", () => {
+    expect(isLivePeer(peer({ signalingState: "closed" }))).toBe(false)
+  })
+
+  it("10. treats a failed connection as dead", () => {
+    expect(isLivePeer(peer({ connectionState: "failed" }))).toBe(false)
+  })
+
+  it("11. treats a missing connection as dead", () => {
+    expect(isLivePeer(null)).toBe(false)
   })
 })

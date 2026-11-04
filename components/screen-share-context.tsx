@@ -8,7 +8,7 @@ import {
   WebRTCIceCandidate,
 } from "@/lib/webrtc/types"
 import { mergeRemoteTrack } from "@/lib/webrtc/remote-stream"
-import { reusableGuestPeer } from "@/lib/webrtc/peer-reuse"
+import { isLivePeer, reusableGuestPeer } from "@/lib/webrtc/peer-reuse"
 import {
   getMicrophoneList,
   getSpeakerList,
@@ -559,6 +559,13 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   const createPeerForGuest = React.useCallback(
     (guestId: string, userId: string) => {
       if (!localStreamRef.current) return
+
+      // The guest already has a connection to this share (a repeated
+      // "guest joined" while the share is starting, or a room re-announce).
+      // Building a second one replaces an established transport mid-session,
+      // which Chrome rejects with "Failed to set SSL role for the transport".
+      // Renegotiation of the existing connection happens on its own.
+      if (isLivePeer(peerConnectionsRef.current.get(guestId))) return
 
       const pc = new RTCPeerConnection(getConfiguration())
 
