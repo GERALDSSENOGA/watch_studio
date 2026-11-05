@@ -175,6 +175,10 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   const guestAudioElementsRef = React.useRef<Map<string, HTMLAudioElement>>(new Map())
   const reconnectAttemptsRef = React.useRef<Map<string, number>>(new Map())
   const recreatePeerRef = React.useRef<((guestId: string, userId: string) => void) | null>(null)
+  // The host's own userId, captured when the first peer is created. Needed by
+  // startHostMic so it can renegotiate each guest connection with the correct
+  // `from` field when the host turns their mic on mid-share.
+  const hostUserIdRef = React.useRef<string | null>(null)
   // Grace timers for a transient "disconnected". A momentary blip (network
   // switch, tab throttling, an ICE candidate in flight) recovers on its own;
   // only after the grace period do we attempt an ICE restart, so a healthy
@@ -517,9 +521,15 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
 
       const micTrack = stream.getAudioTracks()[0]
       if (micTrack) {
-        // Add mic track to all existing peer connections
-        for (const [, pc] of peerConnectionsRef.current) {
+        // Add mic track to all existing peer connections and renegotiate each
+        // one so every guest receives the host's mic audio. addTrack does not
+        // reliably fire onnegotiationneeded in every browser, so we trigger
+        // the re-offer explicitly instead of waiting for it.
+        for (const [guestId, pc] of peerConnectionsRef.current) {
           pc.addTrack(micTrack, stream)
+          if (hostUserIdRef.current) {
+            hostRenegotiate(pc, guestId, hostUserIdRef.current, false)
+          }
         }
       }
     } catch (err: any) {
@@ -528,7 +538,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         error: err?.message ?? "Failed to access microphone",
       }))
     }
-  }, [])
+  }, [hostRenegotiate, hostUserIdRef])
 
   const stopHostMic = React.useCallback(() => {
     const stream = hostMicRef.current
@@ -694,6 +704,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   )
 
   const addPeer = React.useCallback((guestId: string, userId: string) => {
+    hostUserIdRef.current = userId
     createPeerForGuest(guestId, userId)
   }, [createPeerForGuest])
 
