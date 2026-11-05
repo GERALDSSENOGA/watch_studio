@@ -112,12 +112,16 @@ export function RoomView({
     onError: (code, message) => add({ title: "Connection: " + code, description: message, variant: "danger" }),
   })
 
-  // Route WebRTC signals via WebSocket
+  // Route WebRTC signals via WebSocket. Inject `from` when a signal omits it,
+  // so the receiving peer can look up the right RTCPeerConnection (host keys
+  // by sender userId). Without this, answers/ICE candidates from the guest
+  // arrive with from="" and are silently dropped, leaving the share stuck on
+  // "connecting" until it times out.
   useEffect(() => {
     setSendSignal((signal: { type: string; [key: string]: unknown }) => {
-      send(signal)
+      send({ ...signal, from: signal.from ?? user.id })
     })
-  }, [send, setSendSignal])
+  }, [send, setSendSignal, user.id])
 
   // When returning to the room while already sharing, re-broadcast screen share
   // state and re-establish peer connections with existing members.
