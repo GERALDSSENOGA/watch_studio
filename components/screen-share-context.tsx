@@ -726,11 +726,12 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           const pc = peerConnectionsRef.current.get(offer.from)
           if (!pc) break
           enqueueSignaling(pc, async () => {
-            if (pc.signalingState === "have-local-offer") {
-              // Both sides renegotiated at once: roll our offer back so the
-              // guest's renegotiation can still be answered.
-              await pc.setLocalDescription({ type: "rollback" })
-            }
+            // Glare resolution: if both sides renegotiate at once (e.g. dual
+            // ICE restart), the host wins and keeps its offer. The guest
+            // rolls back on its side (in answerOffer) and accepts the host's
+            // offer, so exactly one side is offerer and the other answerer —
+            // avoiding the "Failed to set SSL role for the transport" error.
+            if (pc.signalingState === "have-local-offer") return
             if (pc.signalingState !== "stable" && pc.signalingState !== "have-remote-offer") return
             await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offer.sdp }))
             flushIceCandidates(pc)
