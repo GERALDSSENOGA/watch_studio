@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { CopyLinkButton, DeleteMediaButton, ReportMediaButton } from "./media-actions"
 
 export default async function MediaDetailPage({
   params,
@@ -174,9 +175,7 @@ export default async function MediaDetailPage({
             >
               Start watch room with this media
             </Link>
-            <Button type="button" variant="ghost" onClick={() => window.navigator.clipboard.writeText(window.location.href)}>
-              Copy link
-            </Button>
+            <CopyLinkButton />
           </div>
         </div>
 
@@ -187,40 +186,8 @@ export default async function MediaDetailPage({
             </CardHeader>
             <CardContent className="space-y-2">
               <Link href={`/media/${media.id}`}><Button type="button" variant="ghost">Edit</Button></Link>
-              <Button
-                type="button"
-                variant="danger"
-                onClick={() => {
-                  if (window.confirm("Delete this media item?")) {
-                    fetch(`/api/media/${media.id}`, { method: "DELETE" }).then(() => {
-                      window.location.href = "/library"
-                    })
-                  }
-                }}
-              >
-                Delete
-              </Button>
-              <Button
-                type="button"
-                variant="link"
-                size="sm"
-                onClick={async () => {
-                  const reason = window.prompt("Why are you reporting this link?")
-                  if (!reason) return
-                  const response = await fetch("/api/reports", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ mediaId: media.id, reason }),
-                  })
-                  if (response.ok) {
-                    window.alert("Report submitted. An administrator will review it.")
-                  } else {
-                    window.alert("Failed to submit report.")
-                  }
-                }}
-              >
-                Report this link
-              </Button>
+              <DeleteMediaButton mediaId={media.id} />
+              <ReportMediaButton mediaId={media.id} />
             </CardContent>
           </Card>
         </div>

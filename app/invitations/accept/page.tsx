@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
+import Link from "next/link"
 import { getInvitationStatus, acceptInvitation } from "@/lib/services/invitation.service"
 import { Button } from "@/components/ui/button"
 export default async function AcceptInvitationPage({
@@ -70,9 +71,9 @@ export default async function AcceptInvitationPage({
         <p className="mt-2 text-muted-foreground">
           {err?.message ?? "An unexpected error occurred."}
         </p>
-        <Button type="button" onClick={() => redirect("/rooms")}>
-          Go to rooms
-        </Button>
+        <Link href="/rooms">
+          <Button>Go to rooms</Button>
+        </Link>
       </div>
     )
   }
