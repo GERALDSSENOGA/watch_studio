@@ -37,6 +37,10 @@ export async function createMedia(input: {
   releaseYear?: number
   genre?: string
   durationMins?: number
+  contentFilterEnabled?: boolean
+  contentRating?: string | null
+  contentWarnings?: string[] | null
+  skipSegments?: Array<{ startMs: number; endMs: number; reason: string }> | null
 }) {
   const trimmed = input.title.trim()
   if (trimmed.length === 0) throw new MediaError("TITLE_REQUIRED", "Title is required", 400)
@@ -67,6 +71,12 @@ export async function createMedia(input: {
       releaseYear: input.releaseYear ?? undefined,
       genre: input.genre?.trim() ?? undefined,
       durationMins: input.durationMins ?? undefined,
+      contentFilterEnabled: input.contentFilterEnabled ?? false,
+      contentRating: input.contentRating ?? undefined,
+      contentWarnings:
+        input.contentWarnings?.length ? JSON.stringify(input.contentWarnings) : undefined,
+      skipSegments:
+        input.skipSegments?.length ? JSON.stringify(input.skipSegments) : undefined,
     },
   })
 }
@@ -124,6 +134,10 @@ export async function updateMedia(
     genre?: string | null
     durationMins?: number | null
     availability?: string
+    contentFilterEnabled?: boolean | null
+    contentRating?: string | null
+    contentWarnings?: string[] | null
+    skipSegments?: Array<{ startMs: number; endMs: number; reason: string }> | null
   }
 ) {
   const media = await getMedia(id, { ownerId: userId })
@@ -159,6 +173,20 @@ export async function updateMedia(
   if (data.genre !== undefined) updates.genre = data.genre ? data.genre.trim() : undefined
   if (data.durationMins !== undefined) updates.durationMins = data.durationMins
   if (data.availability !== undefined) updates.availability = data.availability as MediaAvailability
+  if (data.contentFilterEnabled !== undefined && data.contentFilterEnabled !== null) {
+    updates.contentFilterEnabled = data.contentFilterEnabled
+  }
+  if (data.contentRating !== undefined) updates.contentRating = data.contentRating ?? null
+  if (data.contentWarnings !== undefined) {
+    updates.contentWarnings = data.contentWarnings?.length
+      ? JSON.stringify(data.contentWarnings)
+      : null
+  }
+  if (data.skipSegments !== undefined) {
+    updates.skipSegments = data.skipSegments?.length
+      ? JSON.stringify(data.skipSegments)
+      : null
+  }
 
   return prisma.mediaItem.update({ where: { id }, data: updates })
 }

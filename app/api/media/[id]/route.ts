@@ -21,6 +21,19 @@ const updateSchema = z.object({
   genre: z.string().max(100).optional().nullable(),
   durationMins: z.number().int().min(1).optional().nullable(),
   availability: z.enum(["AVAILABLE", "UNAVAILABLE", "BREAKING", "REMOVED"]).optional(),
+  contentFilterEnabled: z.boolean().optional(),
+  contentRating: z.string().max(20).optional().nullable(),
+  contentWarnings: z.array(z.string()).optional().nullable(),
+  skipSegments: z
+    .array(
+      z.object({
+        startMs: z.number().int().nonnegative(),
+        endMs: z.number().int().nonnegative(),
+        reason: z.string().max(200),
+      })
+    )
+    .optional()
+    .nullable(),
 })
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -65,6 +78,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       genre: parsed.data.genre ?? undefined,
       durationMins: parsed.data.durationMins ?? undefined,
       availability: parsed.data.availability,
+      contentFilterEnabled: parsed.data.contentFilterEnabled,
+      contentRating: parsed.data.contentRating,
+      contentWarnings: parsed.data.contentWarnings,
+      skipSegments: parsed.data.skipSegments,
     })
     return json({ media })
   } catch (err: any) {

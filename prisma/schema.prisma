@@ -182,6 +182,12 @@ model MediaItem {
   genre          String?
   durationMins   Int?
 
+  // Content filtering / parental controls
+  contentFilterEnabled   Boolean @default(false)
+  contentRating          String?     // e.g. G, PG, PG-13, R, NC-17
+  contentWarnings        String?     // JSON array of warning tags (sexual_content, violence, profanity, ...)
+  skipSegments           String?     // JSON array of {startMs, endMs, reason} segments to auto-skip
+
   visibility        String @default("private")
   moderationStatus  String @default("approved")
   createdAt         DateTime @default(now())
