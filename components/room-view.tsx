@@ -327,6 +327,17 @@ export function RoomView({
                 providerVideoId: room.currentMedia?.providerVideoId ?? null,
                 playbackMode: room.currentMedia?.playbackMode ?? "UNSUPPORTED",
                 accessMode: room.currentMedia?.accessMode ?? "EXTERNAL",
+                contentFilterEnabled: room.currentMedia?.contentFilterEnabled ?? false,
+                skipSegments: (() => {
+                  try {
+                    const raw = room.currentMedia?.skipSegments
+                    if (!raw) return []
+                    const parsed = JSON.parse(raw)
+                    return Array.isArray(parsed) ? parsed : []
+                  } catch {
+                    return []
+                  }
+                })(),
               }}
               playback={serverPlayback}
               isHost={isHost}
