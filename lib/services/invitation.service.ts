@@ -33,6 +33,7 @@ function generateToken(): string {
 export async function createInvitation(input: {
   roomId: string
   inviterId: string
+  inviteeId?: string | null
   maxAgeMs?: number
 }) {
   const rate = invitationCreateLimiter.check(`invitation:create:${input.inviterId}`)
@@ -51,6 +52,29 @@ export async function createInvitation(input: {
   if (room.members.length >= room.maxMembers)
     throw new InvitationError("ROOM_FULL", "Room is at capacity", 403)
 
+  // If targeting a specific user, validate they exist and aren't already a member
+  if (input.inviteeId) {
+    const target = await prisma.user.findUnique({
+      where: { id: input.inviteeId },
+      select: { id: true, name: true },
+    })
+    if (!target) throw new InvitationError("USER_NOT_FOUND", "User not found", 404)
+    if (input.inviteeId === input.inviterId)
+      throw new InvitationError("SELF_INVITE", "You cannot invite yourself", 400)
+    const alreadyMember = room.members.some((m) => m.userId === input.inviteeId)
+    if (alreadyMember) throw new InvitationError("ALREADY_MEMBER", "User is already a member of this room", 400)
+    const alreadyInvited = await prisma.invitation.findFirst({
+      where: {
+        roomId: input.roomId,
+        inviteeId: input.inviteeId,
+        status: InvitationStatus.PENDING,
+      },
+    })
+    if (alreadyInvited) {
+      throw new InvitationError("ALREADY_INVITED", "User already has a pending invitation to this room", 400)
+    }
+  }
+
   const token = generateToken()
   const tokenHash = await hash(token, 10)
   const tokenExpiresAt = new Date(Date.now() + (input.maxAgeMs ?? INVITATION_TTL_MS))
@@ -59,14 +83,102 @@ export async function createInvitation(input: {
     data: {
       roomId: input.roomId,
       inviterId: input.inviterId,
+      inviteeId: input.inviteeId ?? null,
       tokenHash,
       tokenExpiresAt,
       status: InvitationStatus.PENDING,
     },
-    select: { id: true, roomId: true, createdAt: true, tokenExpiresAt: true },
+    select: { id: true, roomId: true, createdAt: true, tokenExpiresAt: true, inviteeId: true },
   })
 
   return { invitation, token }
+}
+
+/**
+ * List invitations received by a user (pending, accepted, declined, revoked).
+ */
+export async function listReceivedInvitations(userId: string) {
+  return prisma.invitation.findMany({
+    where: { inviteeId: userId },
+    include: {
+      room: { select: { id: true, name: true, status: true } },
+      inviter: { select: { id: true, name: true, image: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  })
+}
+
+/**
+ * Accept or decline a received invitation in-app (no token required).
+ * Only the invited user can respond.
+ */
+export async function respondToInvitation(input: {
+  invitationId: string
+  userId: string
+  action: "accept" | "decline"
+}) {
+  const invitation = await prisma.invitation.findUnique({
+    where: { id: input.invitationId },
+    include: {
+      room: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          maxMembers: true,
+          members: { select: { userId: true } },
+        },
+      },
+    },
+  })
+  if (!invitation) throw new InvitationError("NOT_FOUND", "Invitation not found", 404)
+  if (invitation.inviteeId !== input.userId)
+    throw new InvitationError("FORBIDDEN", "You are not the invited user", 403)
+  if (invitation.status !== InvitationStatus.PENDING)
+    throw new InvitationError("NOT_PENDING", "Invitation is no longer pending", 400)
+  if (invitation.room.status !== "ACTIVE")
+    throw new InvitationError("CLOSED", "Room is no longer active", 403)
+
+  if (input.action === "decline") {
+    return prisma.invitation.update({
+      where: { id: input.invitationId },
+      data: { status: InvitationStatus.REVOKED, revokedAt: new Date(), revokedById: input.userId },
+    })
+  }
+
+  // accept
+  const room = invitation.room
+  const alreadyMember = room.members.some((m) => m.userId === input.userId)
+  if (alreadyMember) {
+    await prisma.invitation.update({
+      where: { id: input.invitationId },
+      data: { status: InvitationStatus.ACCEPTED, acceptedAt: new Date(), inviteeId: input.userId },
+    })
+    return { invitation, membership: null, alreadyMember: true }
+  }
+  if (room.members.length >= room.maxMembers) {
+    throw new InvitationError("ROOM_FULL", "Room is at capacity", 403)
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.invitation.update({
+      where: { id: input.invitationId },
+      data: {
+        status: InvitationStatus.ACCEPTED,
+        acceptedAt: new Date(),
+        inviteeId: input.userId,
+      },
+    })
+    const membership = await tx.roomMember.create({
+      data: {
+        roomId: room.id,
+        userId: input.userId,
+        role: RoomRole.MEMBER,
+      },
+      include: { user: { select: { id: true, name: true, image: true } } },
+    })
+    return { invitation: updated, membership, alreadyMember: false }
+  })
 }
 
 /**

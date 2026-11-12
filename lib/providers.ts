@@ -12,6 +12,7 @@ export const PROVIDER_IDS = {
   YOUTUBE: "youtube",
   DIRECT_FILE: "direct-file",
   FULLMATCHSHOWS: "fullmatchshows",
+  SOCCERFULL: "soccerfull",
   PLAYMOGO: "playmogo",
   VIXEO: "vixeo",
   VIDARAA: "vidaraa",
@@ -110,6 +111,20 @@ export const PROVIDERS: Record<ProviderId, ProviderCapabilities> = {
     syncSupported: false,
     externalFallbackRequired: true,
     notes: "FullMatchShows is a match replay directory. Videos are hosted on third-party sites; open the link on FullMatchShows to watch. Playback cannot be embedded or synchronized within WatchStudio.",
+  },
+  soccerfull: {
+    id: PROVIDER_IDS.SOCCERFULL,
+    name: "SoccerFull",
+    urlPatterns: [
+      /^(?:https?:\/\/)?(?:www\.)?soccerfull\.net/i,
+    ],
+    embedSupported: false,
+    officialApi: false,
+    commandsSupported: false,
+    positionReadable: false,
+    syncSupported: false,
+    externalFallbackRequired: true,
+    notes: "SoccerFull is a match replay directory. Videos are hosted on third-party sites; open the link on SoccerFull to watch. Playback cannot be embedded or synchronized within WatchStudio.",
   },
   playmogo: {
     id: PROVIDER_IDS.PLAYMOGO,

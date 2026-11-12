@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/toast"
 import { Spinner } from "@/components/ui/spinner"
 import ScreenShare, { type ScreenShareHandle } from "@/components/screen-share"
+import { InviteUsersDialog } from "@/components/invite-users-dialog"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { useScreenShareGlobal } from "@/components/screen-share-context"
 
@@ -55,6 +56,7 @@ export function RoomView({
   const [closing, setClosing] = useState(false)
   // Zoom-style collapsible sidebar: hidden by default, opens when toggled.
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false)
 
   // Global screen-share context (persists across page navigation)
   const {
@@ -181,25 +183,8 @@ export function RoomView({
       })
   }, [socketConnected, room.id, add])
 
-  const createInvitation = async () => {
-    setCreatingInvite(true)
-    try {
-      const response = await fetch("/api/invitations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomId: room.id }),
-      })
-      if (!response.ok) throw new Error("Failed to create invitation")
-      const { token } = await response.json()
-      const url = `${window.location.origin}/invitations/accept?token=${token}`
-      setInvitationUrl(url)
-      navigator.clipboard.writeText(url)
-      add({ title: "Invitation copied", variant: "success" })
-    } catch (err: any) {
-      add({ title: err?.message ?? "Invitation failed", variant: "danger" })
-    } finally {
-      setCreatingInvite(false)
-    }
+  const openInviteDialog = () => {
+    setInviteDialogOpen(true)
   }
 
   const removeMember = async (targetUserId: string) => {
@@ -327,6 +312,17 @@ export function RoomView({
                 providerVideoId: room.currentMedia?.providerVideoId ?? null,
                 playbackMode: room.currentMedia?.playbackMode ?? "UNSUPPORTED",
                 accessMode: room.currentMedia?.accessMode ?? "EXTERNAL",
+                contentFilterEnabled: room.currentMedia?.contentFilterEnabled ?? false,
+                skipSegments: (() => {
+                  try {
+                    const raw = room.currentMedia?.skipSegments
+                    if (!raw) return []
+                    const parsed = JSON.parse(raw)
+                    return Array.isArray(parsed) ? parsed : []
+                  } catch {
+                    return []
+                  }
+                })(),
               }}
               playback={serverPlayback}
               isHost={isHost}
@@ -465,7 +461,7 @@ export function RoomView({
         <div className="flex items-center gap-2">
           {isHost || isModeratorOrHost ? (
             <>
-              <Button onClick={createInvitation} disabled={creatingInvite} size="sm">
+              <Button onClick={openInviteDialog} disabled={creatingInvite} size="sm">
                 {creatingInvite ? "Creating…" : "Invite friends"}
               </Button>
               <Button type="button" variant="danger" onClick={closeRoom} disabled={closing} size="sm">
@@ -508,13 +504,20 @@ export function RoomView({
                 </Button>
               </div>
             ) : (
-              <Button onClick={createInvitation} disabled={creatingInvite}>
+              <Button onClick={openInviteDialog} disabled={creatingInvite}>
                 {creatingInvite ? "Creating…" : "Create invitation"}
               </Button>
             )}
           </CardContent>
         </Card>
       </aside>
+
+      <InviteUsersDialog
+        open={inviteDialogOpen}
+        onClose={() => setInviteDialogOpen(false)}
+        roomId={room.id}
+      />
+
     </div>
   )
 }

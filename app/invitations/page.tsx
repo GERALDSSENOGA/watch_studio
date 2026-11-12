@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth"
+import Link from "next/link"
 import { listSentInvitations } from "@/lib/services/invitation.service"
 import { InvitationsList } from "@/components/invitations-list"
 
@@ -22,6 +23,9 @@ export default async function InvitationsPage() {
           <p className="text-muted-foreground">
             Invitations you have sent. Revoke to make a link unusable.
           </p>
+          <Link href="/invitations/received" className="text-sm text-accent hover:underline">
+            View invitations received →
+          </Link>
         </div>
       </div>
       <InvitationsList invitations={invitations} />

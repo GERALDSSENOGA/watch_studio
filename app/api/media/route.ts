@@ -16,6 +16,19 @@ const createSchema = z.object({
   releaseYear: z.number().int().min(1800).max(2100).optional().nullable(),
   genre: z.string().max(100).optional().nullable(),
   durationMins: z.number().int().min(1).optional().nullable(),
+  contentFilterEnabled: z.boolean().optional(),
+  contentRating: z.string().max(20).optional().nullable(),
+  contentWarnings: z.array(z.string()).optional().nullable(),
+  skipSegments: z
+    .array(
+      z.object({
+        startMs: z.number().int().nonnegative(),
+        endMs: z.number().int().nonnegative(),
+        reason: z.string().max(200),
+      })
+    )
+    .optional()
+    .nullable(),
 })
 
 function json(data: unknown, status = 200) {
@@ -66,6 +79,10 @@ export async function POST(req: Request) {
       releaseYear: parsed.data.releaseYear ?? undefined,
       genre: parsed.data.genre ?? undefined,
       durationMins: parsed.data.durationMins ?? undefined,
+      contentFilterEnabled: parsed.data.contentFilterEnabled ?? undefined,
+      contentRating: parsed.data.contentRating ?? undefined,
+      contentWarnings: parsed.data.contentWarnings ?? undefined,
+      skipSegments: parsed.data.skipSegments ?? undefined,
     })
     return json({ media }, 201)
   } catch (err: any) {

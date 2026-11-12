@@ -19,19 +19,32 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json()
-    const { roomId, maxAgeMs } = body as { roomId?: string; maxAgeMs?: number }
+    const { roomId, inviteeId, maxAgeMs } = body as {
+      roomId?: string
+      inviteeId?: string | null
+      maxAgeMs?: number
+    }
 
     if (!roomId || typeof roomId !== "string") {
       return json({ code: "MISSING_ROOM", message: "roomId is required" }, 400)
     }
 
-    const { invitation, token } = await createInvitation({ roomId, inviterId: session.user.id, maxAgeMs })
+    const { invitation, token } = await createInvitation({
+      roomId,
+      inviterId: session.user.id,
+      inviteeId,
+      maxAgeMs,
+    })
 
     // The plaintext token is returned once. It is never stored; only the hash is.
     return json({ invitation, token }, 201)
   } catch (err: any) {
     if (err?.code === "NOT_FOUND") return json({ code: err.code, message: err.message }, 404)
     if (err?.code === "FORBIDDEN") return json({ code: err.code, message: err.message }, 403)
+    if (err?.code === "USER_NOT_FOUND") return json({ code: err.code, message: err.message }, 404)
+    if (err?.code === "SELF_INVITE") return json({ code: err.code, message: err.message }, 400)
+    if (err?.code === "ALREADY_MEMBER") return json({ code: err.code, message: err.message }, 400)
+    if (err?.code === "ALREADY_INVITED") return json({ code: err.code, message: err.message }, 400)
     if (err?.code === "CLOSED") return json({ code: err.code, message: err.message }, 403)
     if (err?.code === "ROOM_FULL") return json({ code: err.code, message: err.message }, 403)
     if (err?.code === "RATE_LIMITED") return json({ code: err.code, message: err.message }, 429)

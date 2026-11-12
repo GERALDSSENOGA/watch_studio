@@ -110,6 +110,33 @@ describe("FullMatchShows URLs", () => {
   })
 })
 
+describe("SoccerFull URLs", () => {
+  it("detects soccerfull match page URLs", () => {
+    const result = detectProvider(
+      "https://soccerfull.net/torreense-vs-ararat-armenia-4863.html",
+    )
+    expect(result?.providerId).toBe(PROVIDER_IDS.SOCCERFULL)
+    expect(result?.videoId).toBeUndefined()
+  })
+
+  it("detects soccerfull URLs with www", () => {
+    const result = detectProvider(
+      "https://www.soccerfull.net/torreense-vs-ararat-armenia-4863.html",
+    )
+    expect(result?.providerId).toBe(PROVIDER_IDS.SOCCERFULL)
+  })
+
+  it("SoccerFull requires external fallback, no sync or embed", () => {
+    const sf = getProvider(PROVIDER_IDS.SOCCERFULL)
+    expect(sf.name).toBe("SoccerFull")
+    expect(sf.syncSupported).toBe(false)
+    expect(sf.embedSupported).toBe(false)
+    expect(sf.commandsSupported).toBe(false)
+    expect(sf.positionReadable).toBe(false)
+    expect(sf.externalFallbackRequired).toBe(true)
+  })
+})
+
 describe("Third-party video host URLs", () => {
   it.each([
     ["https://playmogo.com/d/uampvlo391x3", PROVIDER_IDS.PLAYMOGO],
