@@ -362,16 +362,6 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
                 >
                   {isSharing ? "Sharing…" : "Share Screen"}
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={startHostMic}
-                  disabled={isSharing && !hostMicStream}
-                  className="w-full"
-                >
-                  {hostMicStream ? "Stop Mic" : "Start Mic"}
-                </Button>
               </div>
             </Card>
           )}
