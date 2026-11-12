@@ -606,18 +606,12 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
 
       const pc = new RTCPeerConnection(getConfiguration())
 
-      // Add screen tracks
+      // Add all tracks (screen video + host mic audio). The mic track is part
+      // of localStreamRef.current after startShare merges it in, so adding it
+      // here once covers both screen and mic. Do not add it again below — a
+      // duplicate addTrack of the same track throws "sender already exists".
       for (const track of localStreamRef.current.getTracks()) {
         pc.addTrack(track, localStreamRef.current!)
-      }
-
-      // Add mic track if available
-      const micStream = hostMicRef.current
-      if (micStream) {
-        const micTrack = micStream.getAudioTracks()[0]
-        if (micTrack) {
-          pc.addTrack(micTrack, micStream)
-        }
       }
 
       pc.onicecandidate = (event) => {
