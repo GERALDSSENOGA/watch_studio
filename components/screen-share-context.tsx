@@ -611,13 +611,14 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
         pc.addTrack(track, localStreamRef.current!)
       }
 
-      // Add mic track if available
+      // Add mic track if available. startShare already puts the mic in the
+      // combined capture stream, and addTrack throws InvalidAccessError
+      // ("a sender already exists for the track") on a second add of the same
+      // track — so only add it when it is not part of the stream above.
       const micStream = hostMicRef.current
-      if (micStream) {
-        const micTrack = micStream.getAudioTracks()[0]
-        if (micTrack) {
-          pc.addTrack(micTrack, micStream)
-        }
+      const micTrack = micStream?.getAudioTracks()[0]
+      if (micStream && micTrack && !localStreamRef.current.getTracks().includes(micTrack)) {
+        pc.addTrack(micTrack, micStream)
       }
 
       pc.onicecandidate = (event) => {
