@@ -450,7 +450,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
   }, [closeAllPeers, sendSignal])
 
   // ------------------------------------------------------------------
-  // Host: start sharing
+  // Host: start sharing (captures mic automatically, like Zoom)
   // ------------------------------------------------------------------
   const startShare = React.useCallback(async () => {
     const isFirefox =
@@ -472,27 +472,54 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
               sampleRate: 48000,
             },
       })
-      localStreamRef.current = stream
-      setHostState((prev) => ({ ...prev, isSharing: true, localStream: stream, error: null }))
+
+      // Capture the host's microphone automatically so guests hear the host's
+      // voice as soon as screen sharing starts (Zoom-style). If mic permission
+      // is denied, continue sharing screen without mic audio.
+      let micStream: MediaStream | null = null
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch {
+        micStream = null
+      }
+
+      // Build one stream: video from display capture, audio from mic (and any
+      // tab audio captured by getDisplayMedia).
+      const combined = new MediaStream()
+      for (const track of stream.getTracks()) {
+        combined.addTrack(track)
+      }
+      if (micStream) {
+        const micTrack = micStream.getAudioTracks()[0]
+        if (micTrack) {
+          combined.addTrack(micTrack)
+          hostMicRef.current = micStream
+          setHostMicState({ micStream, isMuted: false })
+        }
+      }
+
+      localStreamRef.current = combined
+      setHostState((prev) => ({
+        ...prev,
+        isSharing: true,
+        localStream: combined,
+        error: null,
+      }))
 
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {
         stopShare()
       })
 
-      // If mic is already captured, add its track to the peer connections
-      const micStream = hostMicRef.current
-      if (micStream) {
-        const micTrack = micStream.getAudioTracks()[0]
-        if (micTrack) {
-          for (const [, pc] of peerConnectionsRef.current) {
-            pc.addTrack(micTrack, micStream)
-          }
+      // Add mic track to any existing peer connections so guests already in
+      // the room hear the host immediately.
+      const micTrack = combined.getAudioTracks()[0]
+      if (micTrack) {
+        for (const [, pc] of peerConnectionsRef.current) {
+          pc.addTrack(micTrack, combined)
         }
       }
     } catch (err: any) {
       const raw = err?.message ?? "Failed to start screen sharing"
-      // On Firefox the generic error hides the real cause (tab capture renders
-      // blank / audio track dropped). Surface an actionable message.
       setHostState((prev) => ({
         ...prev,
         error: isFirefox
