@@ -11,7 +11,8 @@ export type WebRTCMessageType =
   | "webrtc.answer"
   | "webrtc.ice-candidate"
   | "webrtc.screen-share.started"
-  | "webrtc.screen-share.stopped";
+  | "webrtc.screen-share.stopped"
+  | "webrtc.screen-share.resume";
 
 export interface WebRTCSignal {
   type: WebRTCMessageType;

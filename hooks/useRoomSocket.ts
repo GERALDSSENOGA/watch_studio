@@ -2,6 +2,13 @@
 
 import { useEffect, useRef, useCallback, useState } from "react"
 
+// Module-level socket cache shared across all RoomView instances so the
+// signaling WebSocket survives page navigation (e.g. leaving a room tab while
+// screen sharing is active). Without this, each mount/unmount closes the
+// socket and pending WebRTC ICE restarts fail because signaling is unavailable.
+let sharedSocketRef: WebSocket | null = null
+let sharedListeners: Array<{ token: string; handlers: RoomSocketEventHandlers }> = []
+
 export type RoomSocketEventHandlers = {
   onAuth?: (user: { id: string; name: string | null; email: string | null; image: string | null }) => void
   onPresence?: (users: Array<{ userId: string; userName: string | null; role: string }>) => void
@@ -68,10 +75,32 @@ export function useRoomSocket({
 
   const connect = useCallback(() => {
     if (!token) return
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
+
+    // Register this instance's handlers so incoming messages reach it.
+    const listenerIndex = sharedListeners.findIndex((l) => l.token === token)
+    if (listenerIndex === -1) {
+      sharedListeners.push({ token, handlers })
+    } else {
+      sharedListeners[listenerIndex] = { token, handlers }
+    }
+
+    // Reuse the shared socket if it's open; otherwise create a new one.
+    if (sharedSocketRef && sharedSocketRef.readyState === WebSocket.OPEN) {
+      wsRef.current = sharedSocketRef
+      setConnected(true)
+      if (authenticatedRef.current) {
+        handlersRef.current.onConnect?.()
+      }
+      return
+    }
+    if (sharedSocketRef && sharedSocketRef.readyState === WebSocket.CONNECTING) {
+      wsRef.current = sharedSocketRef
+      return
+    }
 
     const url = `${baseUrl}/?token=${encodeURIComponent(token)}`
     const ws = new WebSocket(url)
+    sharedSocketRef = ws
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -93,10 +122,6 @@ export function useRoomSocket({
       switch (m.type) {
         case "auth.ok": {
           const mm = m as { user: { id: string; name: string | null; email: string | null; image: string | null } }
-          // The socket that received auth.ok is the live, authenticated one.
-          // Under React StrictMode a remount can leave wsRef pointing at a
-          // stale or nulled socket, so re-point it before notifying handlers,
-          // otherwise room.join is silently dropped.
           if (wsRef.current !== ws) wsRef.current = ws
           setAuthenticated(true)
           authenticatedRef.current = true
@@ -162,7 +187,8 @@ export function useRoomSocket({
         case "webrtc.answer":
         case "webrtc.ice-candidate":
         case "webrtc.screen-share.started":
-        case "webrtc.screen-share.stopped": {
+        case "webrtc.screen-share.stopped":
+        case "webrtc.screen-share.resume": {
           handlersRef.current.onWebRTCSignal?.(m as { type: string; [key: string]: unknown })
           break
         }
@@ -173,7 +199,8 @@ export function useRoomSocket({
 
     ws.onclose = () => {
       setConnected(false)
-      wsRef.current = null
+      if (wsRef.current === ws) wsRef.current = null
+      if (sharedSocketRef === ws) sharedSocketRef = null
       handlersRef.current.onDisconnect?.()
       if (authenticatedRef.current) {
         reconnectTimerRef.current = setTimeout(() => connectRef.current?.(), 2000)
@@ -183,7 +210,7 @@ export function useRoomSocket({
     ws.onerror = () => {
       ws.close()
     }
-  }, [token, baseUrl])
+  }, [token, baseUrl, handlers])
 
   useEffect(() => {
     connectRef.current = connect
@@ -196,13 +223,25 @@ export function useRoomSocket({
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     connect()
     return () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
-      wsRef.current?.close()
+      // Remove our handlers from the shared listener list; don't close the
+      // shared socket — other RoomView instances may still need it.
+      sharedListeners = sharedListeners.filter((l) => l.token !== token)
+      if (wsRef.current && wsRef.current !== sharedSocketRef) {
+        wsRef.current.close()
+      }
       wsRef.current = null
+      setConnected(false)
+      // If no listeners remain, close the shared socket.
+      if (sharedListeners.length === 0 && sharedSocketRef) {
+        sharedSocketRef.close()
+        sharedSocketRef = null
+      }
     }
-  }, [connect])
+  }, [connect, token])
 
   return {
     send,

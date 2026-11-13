@@ -76,6 +76,9 @@ interface ScreenShareContextValue {
 
   // Set by RoomView to route WebRTC signals via WebSocket
   setSendSignal: (send: ((signal: WebRTCSignal) => void) | null) => void
+
+  // Send a raw WebRTC signal via WebSocket (host/guest resume requests, etc.)
+  sendSignal: (signal: WebRTCSignal) => void
 }
 
 const ScreenShareContext = React.createContext<ScreenShareContextValue | null>(null)
@@ -1027,6 +1030,15 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
           stopReceiving()
           break
         }
+        case "webrtc.screen-share.resume": {
+          // A guest whose stream was dropped (tab navigation, reconnect) is
+          // asking the host to re-establish their peer connection.
+          const resume = signal as { from: string; to: string }
+          if (hostUserIdRef.current && resume.to === hostUserIdRef.current) {
+            addPeer(resume.from, hostUserIdRef.current)
+          }
+          break
+        }
       }
     },
     [
@@ -1039,6 +1051,8 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
       logPeer,
       clearGrace,
       answerOffer,
+      addPeer,
+      hostUserIdRef,
     ]
   )
 
@@ -1214,6 +1228,7 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     screenShareQuality,
     setScreenShareQuality,
     setSendSignal,
+    sendSignal,
   }
 
   return (

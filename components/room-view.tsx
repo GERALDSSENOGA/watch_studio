@@ -76,6 +76,7 @@ export function RoomView({
     stopReceiving,
     handleGuestSignal,
     setSendSignal,
+    sendSignal,
   } = useScreenShareGlobal()
 
   const screenShareRef = React.useRef<ScreenShareHandle | null>(null)
@@ -157,6 +158,45 @@ export function RoomView({
       }
     })
   }, [isHost, isSharing, localStream, socketConnected, room, user.id, presence, send, addPeer])
+
+  // Guest: when returning to a room where the host is already sharing but our
+  // stream was dropped (tab navigation, backgrounded tab, reconnect), ask the
+  // host to re-establish our peer connection instead of sitting blank forever.
+  const hasRequestedResumeRef = React.useRef(false)
+
+  useEffect(() => {
+    if (!isHost || socketConnected === false) return
+
+    // Guest returned to an active share with no stream: request a resume.
+    if (
+      !isHost &&
+      isSharingFromHost &&
+      sharerId &&
+      sharerId !== user.id &&
+      remoteStream === null &&
+      !hasRequestedResumeRef.current &&
+      socketConnected &&
+      socketAuthenticated
+    ) {
+      hasRequestedResumeRef.current = true
+      sendSignal({
+        type: "webrtc.screen-share.resume",
+        roomId: room.id,
+        from: user.id,
+        to: sharerId,
+      })
+    }
+  }, [
+    isHost,
+    isSharingFromHost,
+    sharerId,
+    remoteStream,
+    socketConnected,
+    socketAuthenticated,
+    room.id,
+    user.id,
+    sendSignal,
+  ])
 
   // Handle incoming WebRTC signals from the socket
   useEffect(() => {
