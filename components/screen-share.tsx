@@ -70,8 +70,6 @@ const ScreenShareComponent = React.forwardRef<ScreenShareHandle, ScreenShareProp
       // Host mic
       hostMicStream,
       isHostMicMuted,
-      startHostMic,
-      stopHostMic,
       toggleHostMic,
       // Guest mic
       guestMicStream,

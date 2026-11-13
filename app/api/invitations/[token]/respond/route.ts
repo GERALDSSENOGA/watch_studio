@@ -12,13 +12,16 @@ const respondSchema = z.object({
 
 export async function POST(
   req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  // The segment folder is `[token]` to match the sibling route (Next.js
+  // rejects two different slug names on the same dynamic path), but the
+  // received-invitations UI sends the invitation id here.
+  { params }: { params: Promise<{ token: string }> },
 ) {
   const session = await auth()
   if (!session?.user) return json({ code: "UNAUTHORIZED", message: "Sign in required" }, 401)
 
-  const { id } = await params
-  if (!id) return json({ code: "BAD_REQUEST", message: "Missing invitation id" }, 400)
+  const { token } = await params
+  if (!token) return json({ code: "BAD_REQUEST", message: "Missing invitation id" }, 400)
 
   try {
     const body = await req.json()
@@ -31,7 +34,7 @@ export async function POST(
     }
 
     const result = await respondToInvitation({
-      invitationId: id,
+      invitationId: token,
       userId: session.user.id,
       action: parsed.data.action,
     })

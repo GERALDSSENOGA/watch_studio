@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { ReceivedInvitationActions } from "@/components/received-invitation-actions"
+import { listReceivedInvitations } from "@/lib/services/invitation.service"
 
 export default async function ReceivedInvitationsPage() {
   const session = await auth()
@@ -12,8 +13,11 @@ export default async function ReceivedInvitationsPage() {
     )
   }
 
-  const res = await fetch("/api/invitations/received", { cache: "no-store" })
-  if (!res.ok) {
+  let invitations: any[]
+  try {
+    invitations = await listReceivedInvitations(session.user.id)
+  } catch (err) {
+    console.error("Failed to load received invitations:", err)
     return (
       <div className="mx-auto max-w-4xl px-4 py-6">
         <div className="flex items-center justify-between mb-6">
@@ -26,24 +30,8 @@ export default async function ReceivedInvitationsPage() {
     )
   }
 
-  const { invitations } = await res.json()
-
   const pending = (invitations ?? []).filter((i: any) => i.status === "PENDING")
   const resolved = (invitations ?? []).filter((i: any) => i.status !== "PENDING")
-
-  const respond = async (invitationId: string, action: "accept" | "decline") => {
-    const r = await fetch(`/api/invitations/${invitationId}/respond`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    })
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}))
-      alert(err?.message ?? `Failed to ${action} invitation`)
-      return
-    }
-    ;(window as any).location?.reload()
-  }
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
@@ -79,23 +67,7 @@ export default async function ReceivedInvitationsPage() {
                     {new Date(inv.createdAt).toLocaleDateString()}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => respond(inv.id, "accept")}
-                  >
-                    Accept
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => respond(inv.id, "decline")}
-                  >
-                    Decline
-                  </Button>
-                </div>
+                <ReceivedInvitationActions invitationId={inv.id} />
               </div>
             ))}
           </div>

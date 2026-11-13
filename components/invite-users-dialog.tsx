@@ -4,7 +4,6 @@ import * as React from "react"
 import { useState, useCallback, useEffect } from "react"
 import { useToast } from "@/components/ui/toast"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,6 +14,7 @@ interface UserItem {
   name: string
   image: string | null
   status: string | null
+  isMember: boolean
 }
 
 interface InviteUsersDialogProps {
@@ -35,7 +35,6 @@ export function InviteUsersDialog({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
-  const [search, setSearch] = useState("")
 
   const fetchUsers = useCallback(async () => {
     setLoading(true)
@@ -48,6 +47,7 @@ export function InviteUsersDialog({
         name: u.name ?? "Unnamed user",
         image: u.image ?? null,
         status: u.status ?? null,
+        isMember: Boolean(u.isMember),
       })))
     } catch {
       add({ title: "Could not load users", variant: "danger" })
@@ -60,11 +60,9 @@ export function InviteUsersDialog({
     if (open) fetchUsers()
   }, [open, fetchUsers])
 
-  const filteredUsers = users.filter((u) =>
-    (u.name ?? "").toLowerCase().includes(search.toLowerCase())
-  )
-
   const toggleUser = (userId: string) => {
+    const user = users.find((u) => u.id === userId)
+    if (!user || user.isMember) return
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(userId)) next.delete(userId)
@@ -110,34 +108,31 @@ export function InviteUsersDialog({
   return (
     <Dialog open={open} onClose={onClose} title="Invite users to room">
       <div className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="invite-search">Search users</Label>
-          <Input
-            id="invite-search"
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name…"
-            disabled={loading}
-          />
-        </div>
+        <Label>Select the people you want to invite</Label>
 
         {loading ? (
           <p className="text-muted-foreground text-sm">Loading users…</p>
-        ) : filteredUsers.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No users found.</p>
+        ) : users.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No other accounts exist yet. Invite someone to sign up first.
+          </p>
         ) : (
           <Card>
             <CardContent className="p-3 space-y-2">
-              {filteredUsers.map((u) => (
+              {users.map((u) => (
                 <div
                   key={u.id}
-                  className="flex items-center gap-3 p-2 rounded-md hover:bg-surface-hover cursor-pointer transition-colors"
+                  className={`flex items-center gap-3 p-2 rounded-md transition-colors ${
+                    u.isMember
+                      ? "opacity-50 cursor-not-allowed"
+                      : "hover:bg-surface-hover cursor-pointer"
+                  }`}
                   onClick={() => toggleUser(u.id)}
                 >
                   <input
                     type="checkbox"
                     checked={isSelected(u.id)}
+                    disabled={u.isMember}
                     onChange={() => toggleUser(u.id)}
                     className="rounded-md border-input bg-background text-accent focus:ring-accent focus:ring-2 shrink-0"
                   />
@@ -155,7 +150,11 @@ export function InviteUsersDialog({
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{u.name}</p>
                     <Badge variant="muted" size="sm">
-                      {u.status === "active" ? "Active" : "Offline"}
+                      {u.isMember
+                        ? "Already in room"
+                        : u.status === "active"
+                          ? "Active"
+                          : "Offline"}
                     </Badge>
                   </div>
                   {isSelected(u.id) && (
