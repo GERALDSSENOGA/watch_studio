@@ -10,6 +10,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { parseMediaUrl } from "@/lib/url"
 import { detectProvider } from "@/lib/providers"
+import { formatTimecode, parseTimecode } from "@/lib/timecode"
 
 export type Category = "MOVIE"
 
@@ -21,6 +22,22 @@ export interface SkipSegment {
   startMs: number
   endMs: number
   reason: string
+}
+
+/** Skip segment while it is being typed: boundaries stay as timecodes so the
+ *  user never sees or edits raw milliseconds. */
+type SkipSegmentDraft = {
+  start: string
+  end: string
+  reason: string
+}
+
+function toDraft(segments: SkipSegment[]): SkipSegmentDraft[] {
+  return segments.map((seg) => ({
+    start: formatTimecode(seg.startMs),
+    end: formatTimecode(seg.endMs),
+    reason: seg.reason,
+  }))
 }
 
 const CONTENT_RATINGS: ContentRating[] = ["G", "PG", "PG-13", "R", "NC-17"]
@@ -84,7 +101,7 @@ export function MediaFormDialog({
     contentFilterEnabled: item?.contentFilterEnabled ?? false,
     contentRating: item?.contentRating ?? null,
     contentWarnings: item?.contentWarnings ?? [],
-    skipSegments: item?.skipSegments ?? [],
+    skipSegments: toDraft(item?.skipSegments ?? []),
   })
 
   // `editingItem` takes precedence over `defaultValues`. The dialog stays
@@ -106,7 +123,7 @@ export function MediaFormDialog({
     contentFilterEnabled: boolean
     contentRating: ContentRating | null
     contentWarnings: ContentWarning[]
-    skipSegments: SkipSegment[]
+    skipSegments: SkipSegmentDraft[]
   }
 
   const [form, setForm] = useState<MediaForm>(() => seedForm(seedSource, defaultCategory))
@@ -129,7 +146,7 @@ export function MediaFormDialog({
   const addSkipSegment = React.useCallback(() => {
     setForm((prev) => ({
       ...prev,
-      skipSegments: [...prev.skipSegments, { startMs: 0, endMs: 0, reason: "" }],
+      skipSegments: [...prev.skipSegments, { start: "", end: "", reason: "" }],
     }))
   }, [])
 
@@ -141,7 +158,7 @@ export function MediaFormDialog({
   }, [])
 
   const updateSkipSegment = React.useCallback(
-    (index: number, field: keyof SkipSegment, value: string | number) => {
+    (index: number, field: keyof SkipSegmentDraft, value: string) => {
       setForm((prev) => {
         const segments = [...prev.skipSegments]
         segments[index] = { ...segments[index], [field]: value }
@@ -162,6 +179,31 @@ export function MediaFormDialog({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
+
+    // Convert the typed timecodes to the stored millisecond boundaries.
+    const skipSegments: SkipSegment[] = []
+    for (const [index, draft] of form.skipSegments.entries()) {
+      const startMs = parseTimecode(draft.start)
+      const endMs = parseTimecode(draft.end)
+      if (startMs === null || endMs === null) {
+        add({
+          title: `Skip segment ${index + 1}`,
+          description: "Enter start and end as M:SS or H:MM:SS, e.g. 28:01.",
+          variant: "danger",
+        })
+        return
+      }
+      if (endMs <= startMs) {
+        add({
+          title: `Skip segment ${index + 1}`,
+          description: "The end time must be after the start time.",
+          variant: "danger",
+        })
+        return
+      }
+      skipSegments.push({ startMs, endMs, reason: draft.reason })
+    }
+
     setSubmitting(true)
 
     const releaseYear = form.releaseYear ? Number(form.releaseYear) : undefined
@@ -179,7 +221,7 @@ export function MediaFormDialog({
       contentFilterEnabled: form.contentFilterEnabled,
       contentRating: form.contentRating,
       contentWarnings: form.contentWarnings.length ? form.contentWarnings : undefined,
-      skipSegments: form.skipSegments.length ? form.skipSegments : undefined,
+      skipSegments: skipSegments.length ? skipSegments : undefined,
     }
 
     try {
@@ -338,7 +380,8 @@ export function MediaFormDialog({
               <div className="space-y-2">
                 <Label>Skip segments (auto-skip mature scenes)</Label>
                 <p className="text-xs text-muted-foreground">
-                  Segments are skipped automatically during playback. Times are in milliseconds.
+                  Segments are skipped automatically during playback. Enter times as they appear
+                  on the player — M:SS or H:MM:SS (e.g. 28:01).
                 </p>
                 {form.skipSegments.map((seg, i) => (
                   <div
@@ -346,20 +389,22 @@ export function MediaFormDialog({
                     className="flex gap-2 items-start bg-surface p-2 rounded-md border border-border"
                   >
                     <div className="flex-1 space-y-1">
-                      <Label className="text-xs">Start (ms)</Label>
+                      <Label className="text-xs">Start</Label>
                       <input
-                        type="number"
-                        value={seg.startMs}
-                        onChange={(e) => updateSkipSegment(i, "startMs", Number(e.target.value) || 0)}
+                        type="text"
+                        value={seg.start}
+                        onChange={(e) => updateSkipSegment(i, "start", e.target.value)}
+                        placeholder="28:01"
                         className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                       />
                     </div>
                     <div className="flex-1 space-y-1">
-                      <Label className="text-xs">End (ms)</Label>
+                      <Label className="text-xs">End</Label>
                       <input
-                        type="number"
-                        value={seg.endMs}
-                        onChange={(e) => updateSkipSegment(i, "endMs", Number(e.target.value) || 0)}
+                        type="text"
+                        value={seg.end}
+                        onChange={(e) => updateSkipSegment(i, "end", e.target.value)}
+                        placeholder="28:47"
                         className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                       />
                     </div>
