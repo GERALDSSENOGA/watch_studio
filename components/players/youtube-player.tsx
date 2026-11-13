@@ -22,6 +22,12 @@ interface YouTubePlayerProps {
   /** Receives the live player controls once created, so a parent can apply
    *  server-authoritative playback state to the real player. */
   controlsRef?: React.MutableRefObject<YouTubeControls | null>
+  /** When content filtering is enabled, auto-seek past these segments
+   *  during playback (e.g. to cut mature scenes from a YouTube video). */
+  skipSegments?: Array<{ startMs: number; endMs: number; reason: string }>
+  contentFilterEnabled?: boolean
+  /** Callback fired when the player auto-skips a segment. */
+  onSkipSegment?: (reason: string) => void
 }
 
 /** Control surface exposed to the parent (RoomPlayer). */
@@ -42,6 +48,9 @@ export function YouTubePlayer({
   onPlaybackRateChange,
   className,
   controlsRef,
+  skipSegments = [],
+  contentFilterEnabled = false,
+  onSkipSegment,
 }: YouTubePlayerProps) {
   const playerRef = React.useRef<YT.Player | null>(null)
   const [isReady, setIsReady] = React.useState(false)
@@ -153,6 +162,46 @@ export function YouTubePlayer({
       setLoadError(null)
     }
   }, [videoId, isReady])
+
+  // ------------------------------------------------------------------
+  // Auto-skip: poll the player's current time and seek past any segment
+  // whose range we are inside. Only applies when contentFilterEnabled.
+  // ------------------------------------------------------------------
+  const skippedSegmentsRef = React.useRef<Set<number>>(new Set())
+
+  React.useEffect(() => {
+    if (!contentFilterEnabled || !skipSegments.length || !playerRef.current || !isReady) {
+      skippedSegmentsRef.current.clear()
+      return
+    }
+
+    const player = playerRef.current
+    const interval = setInterval(() => {
+      const currentTimeMs = player.getCurrentTime() * 1000
+
+      for (let i = 0; i < skipSegments.length; i++) {
+        if (skippedSegmentsRef.current.has(i)) continue
+        const seg = skipSegments[i]
+        if (currentTimeMs >= seg.startMs && currentTimeMs < seg.endMs) {
+          // Seek past the segment and mark it skipped
+          player.seekTo(seg.endMs / 1000, true)
+          skippedSegmentsRef.current.add(i)
+          onSkipSegment?.(seg.reason)
+          break
+        }
+      }
+    }, 500)
+
+    return () => {
+      clearInterval(interval)
+      skippedSegmentsRef.current.clear()
+    }
+  }, [contentFilterEnabled, skipSegments, isReady, onSkipSegment])
+
+  // Reset skipped segments when the video changes
+  React.useEffect(() => {
+    skippedSegmentsRef.current.clear()
+  }, [videoId])
 
   return (
     <div className={className}>

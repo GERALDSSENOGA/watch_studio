@@ -131,6 +131,10 @@ export function MediaGrid({ items }: MediaGridProps) {
                         releaseYear: item.releaseYear,
                         genre: item.genre,
                         durationMins: item.durationMins,
+                        contentFilterEnabled: (item as any).contentFilterEnabled ?? false,
+                        contentRating: (item as any).contentRating ?? null,
+                        contentWarnings: (item as any).contentWarnings ?? [],
+                        skipSegments: (item as any).skipSegments ?? [],
                       }
                       setEditing(next)
                     }}

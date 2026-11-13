@@ -20,6 +20,8 @@ interface RoomMedia {
   providerVideoId: string | null
   playbackMode: string
   accessMode: string
+  contentFilterEnabled?: boolean
+  skipSegments?: Array<{ startMs: number; endMs: number; reason: string }>
 }
 
 interface RoomPlayback {
@@ -58,6 +60,7 @@ export function RoomPlayer({
   const playerRef = React.useRef<YouTubeControls | null>(null)
   const [playerReady, setPlayerReady] = React.useState(false)
   const [needsTapToSync, setNeedsTapToSync] = React.useState(false)
+  const [skipNotice, setSkipNotice] = React.useState<{ reason: string; atMs: number } | null>(null)
 
   // ------------------------------------------------------------------
   // Sync hook: host broadcasts, guest applies with drift threshold
@@ -199,6 +202,13 @@ export function RoomPlayer({
             onReady={onReady}
             onStateChange={onStateChange}
             controlsRef={playerRef}
+            skipSegments={media.skipSegments}
+            contentFilterEnabled={media.contentFilterEnabled}
+            onSkipSegment={(reason) => {
+              const current = playerRef.current?.getCurrentTime() ?? 0
+              setSkipNotice({ reason, atMs: current * 1000 })
+              setTimeout(() => setSkipNotice(null), 3000)
+            }}
             onError={() => {
               send({ type: "playback.error", code: "EMBED_BLOCKED", message: "This video cannot be embedded." })
             }}
@@ -206,6 +216,13 @@ export function RoomPlayer({
           {!playerReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-sm text-muted-foreground">
               Loading player…
+            </div>
+          )}
+          {skipNotice && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-sm">
+              <span className="rounded-md bg-amber-900/90 px-3 py-1.5 text-amber-200 text-xs border border-amber-500/30">
+                Content filtered: {skipNotice.reason} skipped
+              </span>
             </div>
           )}
         </div>
