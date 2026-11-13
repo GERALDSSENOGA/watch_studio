@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/db"
 
 /**
- * List users for the invitation picker. Excludes the requester and users
- * who are already members of the given room (if roomId is provided).
+ * List accounts for the invitation picker. Excludes the requester. When
+ * roomId is provided, users already in that room are returned with
+ * isMember: true so the picker can show them as unavailable.
  */
 export async function listUsersForInvite({
   requesterId,
@@ -13,22 +14,24 @@ export async function listUsersForInvite({
   roomId?: string
   take?: number
 }) {
-  const memberIds: string[] = []
+  const memberIds = new Set<string>()
   if (roomId) {
     const members = await prisma.roomMember.findMany({
       where: { roomId },
       select: { userId: true },
     })
-    memberIds.push(...members.map((m) => m.userId))
+    for (const m of members) memberIds.add(m.userId)
   }
 
-  return prisma.user.findMany({
+  const users = await prisma.user.findMany({
     where: {
-      id: { not: requesterId, notIn: memberIds },
+      id: { not: requesterId },
       status: "active",
     },
     select: { id: true, name: true, image: true, status: true },
     orderBy: { name: "asc" },
     take,
   })
+
+  return users.map((u) => ({ ...u, isMember: memberIds.has(u.id) }))
 }
