@@ -65,6 +65,29 @@ body {
   outline-offset: 2px;
 }
 
+/* Dotted loading bar — a soft wave travelling across neutral dots */
+@keyframes loading-dot-sweep {
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.loading-dot {
+  animation: loading-dot-sweep 1.4s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-dot {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
 /* Screen-share volume slider — thin track, crisp white thumb */
 .share-volume {
   -webkit-appearance: none;

@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar } from "@/components/ui/avatar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/toast"
-import { Spinner } from "@/components/ui/spinner"
+import { DottedLoader } from "@/components/ui/dotted-loader"
 import ScreenShare, { type ScreenShareHandle } from "@/components/screen-share"
 import { InviteUsersDialog } from "@/components/invite-users-dialog"
 import { ErrorBoundary } from "@/components/error-boundary"
@@ -273,7 +273,7 @@ export function RoomView({
   if (!socketConnected || !socketAuthenticated) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-6 flex flex-col items-center justify-center min-h-[600px]">
-        <Spinner /> <p className="mt-2">Connecting to room…</p>
+        <DottedLoader label="Connecting to room…" />
       </div>
     )
   }

@@ -77,11 +77,14 @@ export function useRoomSocket({
     if (!token) return
 
     // Register this instance's handlers so incoming messages reach it.
+    // Read from the ref: `handlers` is re-created on every render, and using it
+    // here would give `connect` a new identity each render, re-running the
+    // mount effect and tearing down/re-opening the socket in a loop.
     const listenerIndex = sharedListeners.findIndex((l) => l.token === token)
     if (listenerIndex === -1) {
-      sharedListeners.push({ token, handlers })
+      sharedListeners.push({ token, handlers: handlersRef.current })
     } else {
-      sharedListeners[listenerIndex] = { token, handlers }
+      sharedListeners[listenerIndex] = { token, handlers: handlersRef.current }
     }
 
     // Reuse the shared socket if it's open; otherwise create a new one.
@@ -116,9 +119,6 @@ export function useRoomSocket({
         return
       }
       const m = message as { type?: string }
-      if (m.type === "auth.ok" || m.type === "auth.error") {
-        console.log("[ws-debug] msg", m.type, "wsRef===ws:", wsRef.current === ws, "wsRef.readyState:", wsRef.current?.readyState, "ws.readyState:", ws.readyState)
-      }
       switch (m.type) {
         case "auth.ok": {
           const mm = m as { user: { id: string; name: string | null; email: string | null; image: string | null } }
@@ -210,7 +210,7 @@ export function useRoomSocket({
     ws.onerror = () => {
       ws.close()
     }
-  }, [token, baseUrl, handlers])
+  }, [token, baseUrl])
 
   useEffect(() => {
     connectRef.current = connect
