@@ -6,7 +6,7 @@ import { AddMediaButton } from "@/components/add-media-button"
 export default async function MoviesPage({
   searchParams,
 }: {
-  searchParams?: { search?: string }
+  searchParams: Promise<{ search?: string }>
 }) {
   const session = await auth()
   if (!session?.user) {
@@ -18,9 +18,10 @@ export default async function MoviesPage({
   }
 
   const user = session.user
+  const { search } = await searchParams
   const { items } = await listMedia(user.id, {
     category: "MOVIE",
-    search: searchParams?.search || undefined,
+    search: search || undefined,
     take: 100,
   })
 
