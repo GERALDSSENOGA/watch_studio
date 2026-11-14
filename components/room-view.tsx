@@ -291,28 +291,7 @@ export function RoomView({
       <div className="grid gap-6 lg:grid-cols-12 flex-1 min-h-0">
         {/* Player + playback column */}
         <div className={`${playerColSpan} space-y-6`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Badge variant="muted">{room.status.toLowerCase()}</Badge>
-              {room.currentMedia ? (
-                <Badge
-                  variant={
-                    room.currentMedia.providerId === "youtube"
-                      ? "success"
-                      : "default"
-                  }
-                >
-                  {room.currentMedia.providerId === "youtube"
-                    ? "Synced playback (YouTube)"
-                    : room.currentMedia.category}
-                </Badge>
-              ) : null}
-              {room.currentMedia?.providerId === "youtube" && (
-                <Badge variant="default" size="sm">
-                  Native sync
-                </Badge>
-              )}
-            </div>
+          <div className="flex items-center justify-end">
             {isHost && mediaItems.length > 0 && (
               <select
                 defaultValue={room.currentMediaId ?? ""}

@@ -179,22 +179,6 @@ export function RoomPlayer({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <Badge
-          variant={synced ? "success" : media.playbackMode === "EXTERNAL" ? "muted" : "danger"}
-          size="sm"
-        >
-          {synced
-            ? "Mode A · synchronized"
-            : isDirectFile
-              ? "Mode B · embedded (no sync)"
-              : media.playbackMode === "EXTERNAL"
-                ? "Mode B · external link"
-                : "Mode C · unsupported"}
-        </Badge>
-        <span className="text-xs text-muted-foreground">{provider.name}</span>
-      </div>
-
       {synced && media.providerVideoId ? (
         <div className="relative aspect-video rounded-lg border border-border bg-black overflow-hidden">
           <YouTubePlayer
