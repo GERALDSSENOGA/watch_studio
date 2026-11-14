@@ -270,13 +270,10 @@ export function RoomView({
     [send, room.id]
   )
 
-  if (!socketConnected || !socketAuthenticated) {
-    return (
-      <div className="mx-auto max-w-6xl px-6 py-6 flex flex-col items-center justify-center min-h-[600px]">
-        <DottedLoader label="Connecting to room…" />
-      </div>
-    )
-  }
+  // The room renders straight from server data; only the live socket features
+  // (presence, chat, playback sync) wait for the connection, so joining feels
+  // instant instead of blocking on the handshake.
+  const connecting = !socketConnected || !socketAuthenticated
 
   const playerColSpan = sidebarOpen ? "lg:col-span-7" : "lg:col-span-12"
 
@@ -288,6 +285,7 @@ export function RoomView({
           <h1 className="text-2xl font-bold">{room.name}</h1>
           {room.description && <p className="text-muted-foreground">{room.description}</p>}
         </div>
+        {connecting && <DottedLoader compact dotCount={6} label="Connecting…" />}
       </header>
 
       <div className="grid gap-6 lg:grid-cols-12 flex-1 min-h-0">

@@ -9,23 +9,33 @@ import { classNames } from "@/lib/utils"
 export function DottedLoader({
   label,
   dotCount = 10,
+  compact = false,
   className,
 }: {
   label?: string
   dotCount?: number
+  /** Lay the dots and label out inline, for tight spots like a page header. */
+  compact?: boolean
   className?: string
 }) {
   return (
     <div
       role="status"
       aria-live="polite"
-      className={classNames("flex flex-col items-center gap-3", className)}
+      className={classNames(
+        "flex gap-2.5",
+        compact ? "flex-row items-center" : "flex-col items-center gap-3",
+        className
+      )}
     >
       <div className="flex items-center gap-1.5" aria-hidden="true">
         {Array.from({ length: dotCount }).map((_, index) => (
           <span
             key={index}
-            className="loading-dot h-1.5 w-1.5 rounded-full bg-foreground"
+            className={classNames(
+              "loading-dot rounded-full bg-foreground",
+              compact ? "h-1 w-1" : "h-1.5 w-1.5"
+            )}
             style={{ animationDelay: `${index * 90}ms` }}
           />
         ))}

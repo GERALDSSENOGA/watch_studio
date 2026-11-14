@@ -12,12 +12,11 @@ export default async function RoomPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const session = await auth()
+  const [session, { id }] = await Promise.all([auth(), params])
   if (!session?.user) {
     redirect("/login")
   }
 
-  const { id } = await params
   let room: any
   try {
     room = await getRoom(id)
@@ -59,18 +58,22 @@ export default async function RoomPage({
     )
   }
 
-  const wsSession = await getSession(id)
+  // These are independent reads — run them together so joining a room waits on
+  // one round trip instead of three back to back.
+  const [wsSession, cookieStore, media] = await Promise.all([
+    getSession(id),
+    cookies(),
+    listMedia(session.user.id, { take: 100 }),
+  ])
   // Serve the effective position so a client loading mid-playback cues at the
   // real position, not the (frozen) position captured when play was pressed.
   const playback = wsSession ? { ...wsSession, positionMs: effectivePositionMs(wsSession) } : null
-  const cookieStore = await cookies()
   // Auth.js prefixed the session cookie with `__Secure-` when the app is served
   // over HTTPS (as through the preview proxy); accept both names.
   const wsToken =
     cookieStore.get("__Secure-authjs.session-token")?.value ??
     cookieStore.get("authjs.session-token")?.value
 
-  const media = await listMedia(session.user.id, { take: 100 })
   const mediaItems = media.items.map((item: any) => ({ id: item.id, title: item.title }))
 
   return (
