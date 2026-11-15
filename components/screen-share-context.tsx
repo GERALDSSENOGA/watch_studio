@@ -8,6 +8,7 @@ import {
   WebRTCIceCandidate,
 } from "@/lib/webrtc/types"
 import { mergeRemoteTrack } from "@/lib/webrtc/remote-stream"
+import { getIceServers } from "@/lib/webrtc/ice"
 import { isLivePeer, reusableGuestPeer } from "@/lib/webrtc/peer-reuse"
 import {
   getMicrophoneList,
@@ -247,13 +248,8 @@ export function ScreenShareProvider({ children }: ScreenShareProviderProps) {
     []
   )
 
-  const iceServers: RTCIceServer[] = [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-  ]
-
   const getConfiguration = (): RTCConfiguration => ({
-    iceServers,
+    iceServers: getIceServers(),
     iceCandidatePoolSize: 10,
   })
 

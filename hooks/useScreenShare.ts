@@ -9,6 +9,7 @@ import {
   WebRTCIceCandidate,
   WebRTCScreenShareStatus,
 } from "@/lib/webrtc/types"
+import { getIceServers } from "@/lib/webrtc/ice"
 
 interface UseScreenShareProps {
   roomId: string
@@ -55,13 +56,8 @@ export function useScreenShare({
   )
   const localStreamRef = React.useRef<MediaStream | null>(null)
 
-  const iceServers: RTCIceServer[] = [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-  ]
-
   const getConfiguration = (): RTCConfiguration => ({
-    iceServers,
+    iceServers: getIceServers(),
     iceCandidatePoolSize: 10,
   })
 

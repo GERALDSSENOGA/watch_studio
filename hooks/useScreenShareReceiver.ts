@@ -8,6 +8,7 @@ import {
   WebRTCAnswer,
   WebRTCIceCandidate,
 } from "@/lib/webrtc/types"
+import { getIceServers } from "@/lib/webrtc/ice"
 
 interface UseScreenShareReceiverProps {
   roomId: string
@@ -44,11 +45,6 @@ export function useScreenShareReceiver({
 
   const peerConnectionRef = React.useRef<RTCPeerConnection | null>(null)
 
-  const iceServers: RTCIceServer[] = [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-  ]
-
   const stopReceiving = React.useCallback(() => {
     const pc = peerConnectionRef.current
     if (pc) {
@@ -80,7 +76,7 @@ export function useScreenShareReceiver({
         case "webrtc.offer": {
           const offer = signal as WebRTCOffer
           const pc = new RTCPeerConnection({
-            iceServers,
+            iceServers: getIceServers(),
             iceCandidatePoolSize: 10,
           })
 
